@@ -415,9 +415,479 @@ HashMap 死循环的常用解决方案有以下几个：
 
 HashMap 死循环发生在 JDK 1.7 版本中，形成死循环的原因是 HashMap 在 JDK 1.7 使用的是头插法，头插法 + 多线程并发操作 + HashMap 扩容，这几个点加在一起就形成了 HashMap 的死循环，解决死循环可以采用线程安全容器 ConcurrentHashMap 替代。
 
+### 11.哈希冲突的解决方案有哪些？
+
+哈希冲突是指在哈希表中，两个或多个元素被映射到了同一个位置的情况。
 
 
 
+```java
+String str1 = "3C";
+String str2 = "2b";
+int hashCode1 = str1.hashCode();
+int hashCode2 = str2.hashCode();
+System.out.println("字符串: " + str1 + ", hashCode: " + hashCode1);
+System.out.println("字符串: " + str2 + ", hashCode: " + hashCode2);
+```
+
+程序的运行结果如下： ![image.png](https://javacn.site/image/1681181377546-3973e798-286a-4085-bf04-c230c73a1c61.png)不同的字符串，却拥有了相同的 hashCode 这就是哈希冲突。因为元素的位置是根据 hashCode 的值进行定位的，此时它们的 hashCode 相同，但一个位置只能存储一个值，这就是哈希冲突。
+
+#### [#](#解决哈希冲突) 解决哈希冲突
+
+在 Java 中，解决哈希冲突的常用方法有以下三种：链地址法、开放地址法和再哈希法。
+
+1. **链地址法（Separate Chaining）**：将哈希表中的每个桶都设置为一个链表，当发生哈希冲突时，将新的元素插入到链表的末尾。这种方法的优点是简单易懂，适用于元素数量较多的情况。缺点是当链表过长时，查询效率会降低。
+2. **开放地址法（Open Addressing）**：当发生哈希冲突时，通过一定的探测方法（如线性探测、二次探测、双重哈希等）在哈希表中寻找下一个可用的位置。这种方法的优点是不需要额外的存储空间，适用于元素数量较少的情况。缺点是容易产生聚集现象，即某些桶中的元素过多，而其他桶中的元素很少。
+3. **再哈希法（Rehashing）**：当发生哈希冲突时，使用另一个哈希函数计算出一个新的哈希值，然后将元素插入到对应的桶中。这种方法的优点是简单易懂，适用于元素数量较少的情况。缺点是需要额外的哈希函数，且当哈希函数不够随机时，容易产生聚集现象。
+
+#### [#](#链地址法-vs-开放地址法) 链地址法 VS 开放地址法
+
+链地址法和开放地址法个人觉得以下几点不同：
+
+1. **存储结构不同**：链地址法规定了存储的结构为链表（每个桶为一个链表），每次将值存储到链表的末尾；而开放地址法未规定存储的结构，所以它可以是链表也可以是树结构等。
+2. **查找方式不同**：链地址法查找时，先通过哈希函数计算出哈希值，然后在哈希表中查找对应的链表，再遍历链表查找对应的值。而开放地址法查找时，先通过哈希函数计算出哈希值，然后在哈希表中查找对应的值，如果查找到的值不是要查找的值，就继续查找下一个值，直到查找到为止。
+3. **插入方法不同**：链地址法插入时，先通过哈希函数计算出哈希值，然后在哈希表中查找对应的链表，再将值插入到链表的末尾。而开放地址法插入时，是通过一定的探测方法，如线性探测、二次探测、双重哈希等，在哈希表中寻找下一个可用的位置。所以链地址法插入方法实现非常简单，而开放地址法插入方法实现相对复杂。
+
+#### [#](#线性探测-vs-二次探测) 线性探测 VS 二次探测
+
+线性探测是发生哈希冲突时，线性探测会在哈希表中寻找下一个可用的位置，具体来说，它会检查哈希表中下一个位置是否为空，如果为空，则将元素插入该位置；如果不为空，则继续检查下一个位置，直到找到一个空闲的位置为止。
+
+二次探测是发生哈希冲突时，二次探测会使用一个二次探测序列来寻找下一个可用的位置，具体来说，它会计算出一个二次探测序列，然后依次检查哈希表中的每个位置，直到找到一个空闲的位置为止。二次探测的优点是相对于线性探测来说，它更加均匀地分布元素，缺点是当哈希表的大小改变时，需要重新计算二次探测序列。
+
+具体来说，二次探测序列是一个二次函数，它的形式如下：
+
+> f(i) = i^2
+
+其中，i 表示探测的步数，f(i) 表示探测的位置。
+
+例如，当发生哈希冲突时，如果哈希表中的第 k 个位置已经被占用，那么二次探测会依次检查第 k+1^2、第 k-1^2、第 k+2^2、第 k-2^2、第 k+3^2、第 k-3^2……等位置，直到找到一个空闲的位置为止。
+
+二次探测的优点是相对于线性探测来说，它更加均匀地分布元素，但缺点是容易产生二次探测聚集现象，即某些桶中的元素过多，而其他桶中的元素很少。
+
+#### [#](#hashmap-如何解决哈希冲突) HashMap 如何解决哈希冲突？
+
+在 Java 中，HashMap 使用的是链地址法解决哈希冲突的，对于存在冲突的 key，HashMap 会把这些 key 组成一个单向链表，之后使用尾插法把这个 key 保存到链表尾部。 ![img](https://javacn.site/image/1641790380364-b5d8bd89-aa43-49a1-99eb-5606b21d4806.png)
+
+
+
+
+
+
+
+### 12.什么是反射，使用场景有哪些？
+
+在 Java 中，反射是指在运行时检查和操作类、接口、字段、方法等程序结构的能力。通过反射，可以在运行时获取类的信息，创建类的实例，调用类的方法，访问和修改类的字段等。
+
+#### [#](#反射实现) 反射实现
+
+先定义一个需要被反射的类对象 User：
+
+
+
+```java
+public class User {
+    public String name = "张三";
+    private int age = 18;
+
+    public void publicMethod() {
+        System.out.println("do public method");
+    }
+
+    private void privateMethod() {
+        System.out.println("do private method");
+    }
+
+    public static void staticMethod() {
+        System.out.println("do static method");
+    }
+}
+```
+
+#### [#](#_1-反射执行公共方法) 1.反射执行公共方法
+
+通过反射实现公共方法的调用，主要分为以下 3 步：
+
+
+
+```java
+// 1.反射得到对象
+Class<?> clazz = Class.forName("User");
+// 2.得到方法
+Method method = clazz.getDeclaredMethod("publicMethod");
+// 3.执行普通方法
+method.invoke(clazz.getDeclaredConstructor().newInstance());
+```
+
+其中第 3 步，如果是 JDK 9 之前的版本使用以下代码替代：
+
+> method.invoke(clazz.newInstance());
+
+JDK 9 之后，使用 Class.newInstance() 方法被弃用了。
+
+#### [#](#_2-反射执行私有方法) 2.反射执行私有方法
+
+
+
+```java
+// 1.反射得到对象
+Class<?> clazz = Class.forName("User");
+// 2.得到方法
+Method method = clazz.getDeclaredMethod("publicMethod");
+// 得到私有方法
+Method privateMethod = clazz.getDeclaredMethod("privateMethod");
+// 设置私有方法可访问
+privateMethod.setAccessible(true);
+// 执行私有方法
+privateMethod.invoke(clazz.getDeclaredConstructor().newInstance());
+```
+
+#### [#](#_3-反射执行静态方法) 3.反射执行静态方法
+
+
+
+```java
+// 1.反射得到对象
+Class<?> clazz = Class.forName("User");
+// 2.得到方法
+Method method = clazz.getDeclaredMethod("publicMethod");
+// 得到静态方法
+Method staticMethod = clazz.getDeclaredMethod("staticMethod");
+// 执行静态方法
+staticMethod.invoke(clazz);
+```
+
+#### [#](#_4-反射得到公共属性值) 4.反射得到公共属性值
+
+
+
+```java
+// 反射得到对象
+Class<?> clazz = Class.forName("User");
+// 得到公共属性
+Field field = clazz.getDeclaredField("name");
+// 得到属性值
+String name = (String) field.get(
+        clazz.getDeclaredConstructor().newInstance());
+// 打印属性值
+System.out.println("name -> " + name);
+```
+
+#### [#](#_5-反射得到私有属性值) 5.反射得到私有属性值
+
+
+
+```java
+// 反射得到对象
+Class<?> clazz = Class.forName("User");
+// 得到私有属性
+Field privateField = clazz.getDeclaredField("age");
+// 设置私有属性可访问
+privateField.setAccessible(true);
+// 得到属性值
+int age = (int) privateField.get(
+        clazz.getDeclaredConstructor().newInstance());
+// 打印属性值
+System.out.println("age -> " + age);
+```
+
+#### [#](#使用场景) 使用场景
+
+反射的使用场景有很多，以下是比较常见的几种反射的使用场景：
+
+1. 编程开发工具的代码提示，如 IDEA 或 Eclipse 等，在写代码时会有代码（属性或方法名）提示，这就是通过反射实现的。
+2. 很多知名的框架如 Spring，为了让程序更简洁、更优雅，以及功能更丰富，也会使用到反射，比如 Spring 中的依赖注入就是通过反射实现的。
+3. 数据库连接框架也会使用反射来实现调用不同类型的数据库（驱动）。
+
+#### [#](#优缺点分析) 优缺点分析
+
+反射的优点如下：
+
+1. 灵活性：使用反射可以在运行时动态加载类，而不需要在编译时就将类加载到程序中。这对于需要动态扩展程序功能的情况非常有用。
+2. 可扩展性：使用反射可以使程序更加灵活和可扩展，同时也可以提高程序的可维护性和可测试性。
+3. 实现更多功能：许多框架都使用反射来实现自动化配置和依赖注入等功能。例如，Spring 框架就使用反射来实现依赖注入。
+
+反射的缺点如下：
+
+1. 性能问题：使用反射会带来一定的性能问题，因为反射需要在运行时动态获取类的信息，这比在编译时就获取信息要慢。
+2. 安全问题：使用反射可以访问和修改类的字段和方法，这可能会导致安全问题。因此，在使用反射时需要格外小心，确保不会对程序的安全性造成影响。
+
+#### [#](#小结) 小结
+
+反射是指在运行时检查和操作类、接口、字段、方法等程序结构的能力。通过反射，可以在运行时获取类的信息，创建类的实例，调用类的方法，访问和修改类的字段等。通过反射可以提高程序的灵活性和可扩展性，可以实现更多的功能。但在使用反射时需要考虑性能问题以及安全等问题。
+
+### 13.浅克隆和深克隆有什么区别？
+
+#### 什么是克隆？
+
+在编程中，克隆是指创建一个与原始对象相同的新对象。这个新对象通常具有与原始对象相同的属性和方法，但是它们是两个不同的对象，它们在内存中的位置不同。 在 Java 中，可以通过实现 Cloneable 接口和重写 clone() 方法来实现对象的克隆。
+
+#### [#](#什么是浅克隆和深克隆-它们有什么区别) 什么是浅克隆和深克隆？它们有什么区别？
+
+在 Java 中，克隆可以分为深克隆和浅克隆两种。它们的区别在于克隆出来的新对象是否与原始对象共享引用类型的属性。具体来说：
+
+- 浅克隆：克隆出来的新对象与原始对象共享引用类型的属性。也就是说，新对象中的引用类型属性指向的是原始对象中相同的引用类型属性。如果修改了新对象中的引用类型属性，原始对象中的相应属性也会被修改。在 Java 中，可以通过实现 Cloneable 接口和重写 clone() 方法来实现浅克隆。
+- 深克隆：克隆出来的新对象与原始对象不共享引用类型的属性。也就是说，新对象中的引用类型属性指向的是新的对象，而不是原始对象中相同的引用类型属性。如果修改了新对象中的引用类型属性，原始对象中的相应属性不会被修改。
+
+#### [#](#浅克隆实现) 浅克隆实现
+
+
+
+```java
+public class CloneDemo {
+    public static void main(String[] args) {
+        Person p1 = new Person();
+        p1.setName("张三");
+        p1.setAge(18);
+        Address address = new Address();
+        address.setCity("北京");
+        p1.setAddress(address);
+        // 克隆 p1 对象
+        Person p2 = p1.clone();
+        System.out.println(p1 == p2); // false
+        System.out.println(p1.getAddress() == p2.getAddress()); // true
+    }
+}
+class Person implements Cloneable {
+    private String name;
+    private int age;
+    private Address address; // 引用类型
+    @Override
+    public Person clone() {
+        Person person = null;
+        try {
+            person = (Person) super.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+        return person;
+    }
+    // 忽略 getter 和 setter 方法
+}
+
+class Address {
+    private String city;
+
+    // 忽略 getter 和 setter 方法
+}
+```
+
+#### [#](#深克隆实现) 深克隆实现
+
+深克隆的实现方法有很多，比如以下几个：
+
+1. 所有引用属性都实现克隆，整个对象就变成了深克隆。
+2. 使用 JDK 自带的字节流序列化和反序列化对象实现深克隆。
+3. 使用第三方工具实现深克隆，比如 Apache Commons Lang。
+4. 使用 JSON 工具，如 GSON、FastJSON、Jackson 序列化和反序列化对象实现深克隆。
+
+比较常用的深克隆实现是，第一种让所有引用类型的属性实现克隆，和第四种使用 JSON 工具实现深克隆。
+
+> 在 Java 中，序列化是指将对象转换为字节流的过程，以便可以将其存储在文件中、通过网络发送或在进程之间传递。反序列化是指将字节流转换回对象的过程。
+
+#### [#](#深克隆实现一-引用属性实现克隆) 深克隆实现一：引用属性实现克隆
+
+
+
+```java
+import lombok.Getter;
+import lombok.Setter;
+
+public class CloneDemo {
+    public static void main(String[] args) {
+        Person p1 = new Person();
+        p1.setName("张三");
+        p1.setAge(18);
+        // 引用类型
+        Address address = new Address();
+        address.setCity("北京");
+        p1.setAddress(address);
+        // 克隆 p1 对象
+        Person p2 = p1.clone();
+        // 对比引用类型的地址值是否相同
+        System.out.println(p1.getAddress() == p2.getAddress()); // false
+    }
+}
+
+@Getter
+@Setter
+class Person implements Cloneable {
+    private String name;
+    private int age;
+    private Address address; // 引用类型
+
+    @Override
+    public Person clone() {
+        Person person = null;
+        try {
+            person = (Person) super.clone();
+            // 克隆引用类型
+            person.setAddress(person.getAddress().clone());
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+        return person;
+    }
+}
+
+@Getter
+@Setter
+class Address implements Cloneable {
+    private String city;
+
+    @Override
+    public Address clone() {
+        Address address = null;
+        try {
+            address = (Address) super.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+        return address;
+    }
+}
+```
+
+#### [#](#深克隆实现二-使用-json-工具) 深克隆实现二：使用 JSON 工具
+
+使用 Google 的 GSON（JSON）工具类来实现：
+
+
+
+```java
+import com.google.gson.Gson;
+import lombok.Getter;
+import lombok.Setter;
+
+public class CloneDemo {
+    public static void main(String[] args) {
+        Person p1 = new Person();
+        p1.setName("张三");
+        p1.setAge(18);
+        // 引用类型
+        Address address = new Address();
+        address.setCity("北京");
+        p1.setAddress(address);
+        // JSON 工具类
+        Gson gson = new Gson();
+        // 序列化
+        String json = gson.toJson(p1);
+        // 克隆 p1 对象 | 反序列化
+        Person p2 = gson.fromJson(json, Person.class);
+        // 对比引用类型的地址值是否相同
+        System.out.println(p1.getAddress() == p2.getAddress()); //false
+    }
+}
+
+@Getter
+@Setter
+class Person implements Cloneable {
+    private String name;
+    private int age;
+    private Address address; // 引用类型
+
+    @Override
+    public Person clone() {
+        Person person = null;
+        try {
+            person = (Person) super.clone();
+        } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+        }
+        return person;
+    }
+}
+
+@Getter
+@Setter
+class Address {
+    private String city;
+}
+```
+
+#### [#](#小结) 小结
+
+克隆是指创建一个与原始对象相同的新对象。克隆可以分为深克隆和浅克隆两种。它们的区别在于克隆出来的新对象是否与原始对象共享引用类型的属性。
+
+### 14.说一说java内存模型
+
+首先，当问到 Java 内存模型的时候，一定要注意，这块不要和 JVM 内存布局（JVM 运行时数据区域）搞混了，这块问的是 Java 内存模型，Java Memory Model，简称 JMM，而不是 JVM 的内存布局。
+
+**Java 内存模型是用来定义 Java 线程和内存之间的操作规范的，目的是解决多线程正确执行的问题**。Java 内存模型规范的定义确保了多线程程序的可见性、有序性和原子性，从而保证了线程之间正确的交互和数据一致性。 Java 内存模型主要包括以下内容：
+
+1. **主内存（Main Memory）**：所有线程共享的内存区域，包含了对象的字段、方法和运行时常量池等数据。
+2. **工作内存（Working Memory）**：每个线程拥有自己的工作内存，用于存储主内存中的数据的副本。线程只能直接操作工作内存中的数据。
+3. **内存间交互操作**：线程通过读取和写入操作与主内存进行交互。读操作将数据从主内存复制到工作内存，写操作将修改后的数据刷新到主内存。
+4. **原子性（Atomicity）**：JMM 保证基本数据类型（如 int、long）的读写操作具有原子性，即不会被其他线程干扰，保证操作的完整性。
+5. **可见性（Visibility）**：JMM 确保一个线程对共享变量的修改对其他线程可见。这意味着一个线程在工作内存中修改了数据后，必须将最新的数据刷新到主内存，以便其他线程可以读取到更新后的数据。
+6. **有序性（Ordering）**：JMM 保证程序的执行顺序按照一定的规则进行，不会出现随机的重排序现象。这包括了编译器重排序、处理器重排序和内存重排序等。
+
+Java 内存模型通过以上规则和语义，提供了一种统一的内存访问方式，使得多线程程序的行为可预测、可理解，并帮助开发者编写正确和高效的多线程代码。开发者可以利用 JMM 提供的同步机制（如关键字 volatile、synchronized、Lock 等）来实现线程之间的同步和通信，以确保线程安全和数据一致性。
+
+内存模型的简单执行示例图如下：
+
+![image.png](https://javacn.site/image/1687333041836-cc30f37e-c955-43ee-92e8-8b044b0ea650.png)
+
+#### [#](#为什么要有java内存模型) 为什么要有Java内存模型？
+
+只所以要有 Java 内存模型的原因有两个：
+
+1. CPU 缓存和主内存数据一致性的问题
+2. 操作系统优化指令重排序的问题
+
+我们分别来看下这两个问题。
+
+#### [#](#缓存一致性问题) 缓存一致性问题
+
+要讲明白缓存一致性问题，要从计算机的内存结构说起，它的结构是这样的：
+
+![image.png](https://javacn.site/image/1687348549816-1a322b7a-3a22-4544-b1e6-be2cd07f1ccc.png)
+
+所以从上面可以看出计算机的重要组成部分包含以下内容：
+
+1. CPU
+2. CPU 寄存器：也叫 L1 缓存，一级缓存。
+3. CPU 高速缓存：也叫 L2 缓存，二级缓存。
+4. （主）内存
+
+> 当然，部分高端机器还有 L3 三级缓存。
+
+由于主内存与 CPU 处理器的运算能力之间有数量级的差距，所以在传统计算机内存架构中会引入高速缓存（L2）来作为主存和处理器之间的缓冲，CPU 将常用的数据放在高速缓存中，运算结束后 CPU 再讲运算结果同步到主内存中，这样就会导致多个线程在进行操作和同步时，导致 CPU 缓存和主内存数据不一致的问题。
+
+#### [#](#操作系统优化和指令重排序问题) 操作系统优化和指令重排序问题
+
+并且，由于 JIT（Just In Time，即时编译）技术的存在，它可能会对代码进行优化，比如将原本执行顺序为 a -> b -> c 的流程，“优化”成 a -> c -> b 了，但这样优化之后，可能会导致我们的程序在某些场景执行出错，比如单例模式双重效验锁的场景，这就是典型的好心办坏事的事例。
+
+#### [#](#结论) 结论
+
+所以，为了防止缓存一致性问题和操作系统指令重排序导致的问题，于是就有了 Java 内存模型，来规范和定义多线程的可见性、有序性和原子性，从而保证了线程之间正确的交互和数据一致性。
+
+Java 内存模型定义了很多东西，比如以下这些：
+
+- 所有的变量都存储在主内存（Main Memory）中。
+- 每个线程都有一个私有的本地内存（Local Memory），本地内存中存储了该线程以读/写共享变量的拷贝副本。
+- 线程对变量的所有操作都必须在本地内存中进行，而不能直接读写主内存。
+- 不同的线程之间无法直接访问对方本地内存中的变量。
+
+就是咱们文章刚开始画的那附图。
+
+#### [#](#主内存和工作内存交互规范) 主内存和工作内存交互规范
+
+为了更好的控制主内存和本地内存的交互，Java 内存模型定义了八种操作来实现（以下内容只需要简单了解即可）：
+
+- lock：锁定，作用于主内存的变量，把一个变量标识为一条线程独占状态。
+- unlock：解锁，作用于主内存变量，把一个处于锁定状态的变量释放出来，释放后的变量才可以被其他线程锁定。
+- read：读取，作用于主内存变量，把一个变量值从主内存传输到线程的工作内存中，以便随后的 load 动作使用
+- load：载入，作用于工作内存的变量，它把 read 操作从主内存中得到的变量值放入工作内存的变量副本中。
+- use：使用，作用于工作内存的变量，把工作内存中的一个变量值传递给执行引擎，每当虚拟机遇到一个需要使用变量的值的字节码指令时将会执行这个操作。
+- assign：赋值，作用于工作内存的变量，它把一个从执行引擎接收到的值赋值给工作内存的变量，每当虚拟机遇到一个给变量赋值的字节码指令时执行这个操作。
+- store：存储，作用于工作内存的变量，把工作内存中的一个变量的值传送到主内存中，以便随后的write的操作。
+- write：写入，作用于主内存的变量，它把 store 操作从工作内存中一个变量的值传送到主内存的变量中。
+
+> 注意：工作内存也就是本地内存的意思。
+
+#### [#](#小结) 小结
+
+Java 内存模型（Java Memory Model，JMM）是一种规范，定义了 Java 程序中多线程环境下内存访问和操作的规则和语义，主要是解决 CPU 缓存一致性问题和操作系统优化指令重排序的问题的。
 
 
 
