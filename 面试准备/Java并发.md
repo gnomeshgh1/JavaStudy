@@ -487,6 +487,776 @@ private Condition consumerCondition = lock.newCondition();
 
 > 那问题来了，为什么还有会 Object 的 wait 和 notify 方法呢？ 因为 Object 类诞生的比较早，也就是说 Condition 和 LockSupport 都是 JDK 后期版本才出现的功能，所以就有了现在这么多线程唤醒和等待的方法了。
 
+### 6.什么是线程通讯，如何通讯？
+
+线程通讯指的是多个线程之间通过共享内存或消息传递等方式来协调和同步它们的执行。在多线程编程中，通常会出现多个线程需要共同完成某个任务的情况，这时就需要线程之间进行通讯，以保证任务能够顺利地执行。
+
+线程通讯的实现方式主要有以下两种：
+
+共享内存：多个线程可以访问同一个共享内存区域，通过读取和写入内存中的数据来进行通讯和同步。 消息传递：多个线程之间通过消息队列、管道、信号量等机制来传递信息和同步状态。
+
+#### [#](#常见场景) 常见场景
+
+线程通讯的常见场景有以下几个：
+
+1. 多个线程共同完成某个任务：例如一个爬虫程序需要多个线程同时抓取不同的网页，然后将抓取结果合并保存到数据库中。这时需要线程通讯来协调各个线程的执行顺序和共享数据。
+2. 避免资源冲突：多个线程访问共享资源时可能会引发竞争条件，例如多个线程同时读写一个文件或数据库。这时需要线程通讯来同步线程之间的数据访问，避免资源冲突。
+3. 保证顺序执行：在某些情况下，需要保证多个线程按照一定的顺序执行，例如一个多线程排序算法。这时需要线程通讯来协调各个线程的执行顺序。
+4. 线程之间的互斥和同步：有些场景需要确保只有一个线程能够访问某个共享资源，例如一个计数器。这时需要使用线程通讯机制来实现线程之间的互斥和同步。
+
+#### [#](#实现方法) 实现方法
+
+线程通讯的实现方法有以下几种：
+
+1. 等待和通知机制：使用 Object 类的 wait() 和 notify() 方法来实现线程之间的通讯。当一个线程需要等待另一个线程执行完某个操作时，它可以调用 wait() 方法使自己进入等待状态，同时释放占有的锁，等待其他线程调用 notify() 或 notifyAll() 方法来唤醒它。被唤醒的线程会重新尝试获取锁并继续执行。
+2. 信号量机制：使用 Java 中的 Semaphore 类来实现线程之间的同步和互斥。Semaphore 是一个计数器，用来控制同时访问某个资源的线程数。当某个线程需要访问共享资源时，它必须先从 Semaphore 中获取一个许可证，如果已经没有许可证可用，线程就会被阻塞，直到其他线程释放了许可证。
+3. 栅栏机制：使用 Java 中的 CyclicBarrier 类来实现多个线程之间的同步，它允许多个线程在指定的屏障处等待，并在所有线程都达到屏障时继续执行。
+4. 锁机制：使用 Java 中的 Lock 接口和 Condition 接口来实现线程之间的同步和互斥。Lock 是一种更高级的互斥机制，它允许多个条件变量（Condition）并支持在同一个锁上等待和唤醒。
+
+#### [#](#具体代码实现) 具体代码实现
+
+#### [#](#等待通知实现) 等待通知实现
+
+以下是一个简单的 wait() 和 notify() 方法的等待通知示例：
+
+
+
+```java
+public class WaitNotifyDemo {
+    public static void main(String[] args) {
+        Object lock = new Object();
+        ThreadA threadA = new ThreadA(lock);
+        ThreadB threadB = new ThreadB(lock);
+        threadA.start();
+        threadB.start();
+    }
+    static class ThreadA extends Thread {
+        private Object lock;
+        public ThreadA(Object lock) {
+            this.lock = lock;
+        }
+        public void run() {
+            synchronized (lock) {
+                System.out.println("ThreadA start...");
+                try {
+                    lock.wait(); // 线程A等待
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                System.out.println("ThreadA end...");
+            }
+        }
+    }
+    static class ThreadB extends Thread {
+        private Object lock;
+
+        public ThreadB(Object lock) {
+            this.lock = lock;
+        }
+        public void run() {
+            synchronized (lock) {
+                System.out.println("ThreadB start...");
+                lock.notify(); // 唤醒线程A
+                System.out.println("ThreadB end...");
+            }
+        }
+    }
+}
+```
+
+在这个示例中，定义了一个共享对象 lock，ThreadA 线程先获取 lock 锁，并调用 lock.wait() 方法进入等待状态。ThreadB 线程在获取 lock 锁之后，调用 lock.notify() 方法唤醒 ThreadA 线程，然后 ThreadB 线程执行完毕。 运行以上程序的执行结果如下：
+
+> ThreadA start... ThreadB start... ThreadB end... ThreadA end...
+
+#### [#](#信号量实现) 信号量实现
+
+在 Java 中使用 Semaphore 实现信号量，Semaphore 是一个计数器，用来控制同时访问某个资源的线程数。当某个线程需要访问共享资源时，它必须先从 Semaphore 中获取一个许可证，如果已经没有许可证可用，线程就会被阻塞，直到其他线程释放了许可证。它的示例代码如下：
+
+
+
+```java
+import java.util.concurrent.Semaphore;
+
+public class SemaphoreDemo {
+    public static void main(String[] args) {
+        Semaphore semaphore = new Semaphore(2);
+
+        for (int i = 0; i < 5; i++) {
+            new Thread(new Worker(i, semaphore)).start();
+        }
+    }
+
+    static class Worker implements Runnable {
+        private int id;
+        private Semaphore semaphore;
+
+        public Worker(int id, Semaphore semaphore) {
+            this.id = id;
+            this.semaphore = semaphore;
+        }
+
+        @Override
+        public void run() {
+            try {
+                semaphore.acquire();
+                System.out.println("Worker " + id + " acquired permit.");
+                Thread.sleep(1000);
+                System.out.println("Worker " + id + " released permit.");
+                semaphore.release();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+```
+
+在这个示例中，创建了一个 Semaphore 对象，并且设置了许可数为 2。然后创建了 5 个 Worker 线程，每个 Worker 线程需要获取 Semaphore 的许可才能执行任务。每个 Worker 线程在执行任务之前先调用 semaphore.acquire() 方法获取许可，如果没有许可则会阻塞，直到 Semaphore 释放许可。执行完任务之后调用 semaphore.release() 方法释放许可。 运行以上程序的执行结果如下：
+
+> Worker 0 acquired permit. Worker 1 acquired permit. Worker 1 released permit. Worker 0 released permit. Worker 2 acquired permit. Worker 3 acquired permit. Worker 2 released permit. Worker 4 acquired permit. Worker 3 released permit. Worker 4 released permit.
+
+#### [#](#栅栏实现) 栅栏实现
+
+在 Java 中，可以使用 CyclicBarrier 或 CountDownLatch 来实现线程的同步，它们两个使用类似，接下来我们就是 CyclicBarrier 来演示一下线程的同步，CyclicBarrier 的示例代码如下：
+
+
+
+```java
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
+
+public class CyclicBarrierDemo {
+    public static void main(String[] args) {
+        CyclicBarrier cyclicBarrier = new CyclicBarrier(3, new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("All threads have reached the barrier.");
+            }
+        });
+
+        for (int i = 1; i <= 3; i++) {
+            new Thread(new Worker(i, cyclicBarrier)).start();
+        }
+    }
+
+    static class Worker implements Runnable {
+        private int id;
+        private CyclicBarrier cyclicBarrier;
+
+        public Worker(int id, CyclicBarrier cyclicBarrier) {
+            this.id = id;
+            this.cyclicBarrier = cyclicBarrier;
+        }
+
+        @Override
+        public void run() {
+            try {
+                System.out.println("Worker " + id + " is working.");
+                Thread.sleep((long) (Math.random() * 2000));
+                System.out.println("Worker " + id + " has reached the barrier.");
+                cyclicBarrier.await();
+                System.out.println("Worker " + id + " is continuing the work.");
+            } catch (InterruptedException | BrokenBarrierException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+```
+
+在这个示例中，创建了一个 CyclicBarrier 对象，并且设置了参与线程数为 3。然后创建了 3 个 Worker 线程，每个 Worker 线程会先执行一些任务，然后等待其他线程到达 Barrier。所有线程都到达 Barrier 之后，Barrier 会释放所有线程并执行设置的 Runnable 任务。 运行以上程序的执行结果如下：
+
+> Worker 2 is working. Worker 3 is working. Worker 1 is working. Worker 3 has reached the barrier. Worker 1 has reached the barrier. Worker 2 has reached the barrier. All threads have reached the barrier. Worker 2 is continuing the work. Worker 3 is continuing the work. Worker 1 is continuing the work.
+
+从以上执行结果可以看出，CyclicBarrier 保证了所有 Worker 线程都到达 Barrier 之后才能继续执行后面的任务，这样可以保证线程之间的同步和协作。在本示例中，所有线程都在 Barrier 处等待了一段时间，等所有线程都到达 Barrier 之后才继续执行后面的任务。
+
+#### [#](#锁机制实现) 锁机制实现
+
+以下是一个使用 Condition 的示例：
+
+
+
+```java
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class ConditionDemo {
+
+    private Lock lock = new ReentrantLock();
+    private Condition condition = lock.newCondition();
+    private volatile boolean flag = false;
+
+    public static void main(String[] args) {
+        ConditionDemo demo = new ConditionDemo();
+        new Thread(demo::waitCondition).start();
+        new Thread(demo::signalCondition).start();
+    }
+
+    private void waitCondition() {
+        lock.lock();
+        try {
+            while (!flag) {
+                System.out.println(Thread.currentThread().getName() + " is waiting for signal.");
+                condition.await();
+            }
+            System.out.println(Thread.currentThread().getName() + " received signal.");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void signalCondition() {
+        lock.lock();
+        try {
+            Thread.sleep(3000); // 模拟等待一段时间后发送信号
+            flag = true;
+            System.out.println(Thread.currentThread().getName() + " sends signal.");
+            condition.signalAll();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+在这个示例中，创建了一个 Condition 对象和一个 Lock 对象，然后创建了两个线程，一个线程等待 Condition 信号，另一个线程发送 Condition 信号。
+
+等待线程在获得锁后，判断标志位是否为 true，如果为 false，则等待 Condition 信号；如果为 true，则继续执行后面的任务。
+
+发送线程在获得锁后，等待一段时间后，将标志位设置为 true，并且发送 Condition 信号。 运行以上程序的执行结果如下：
+
+> Thread-0 is waiting for signal. Thread-1 sends signal. Thread-0 received signal.
+
+从上面执行结果可以看出，等待线程在等待 Condition 信号的时候被阻塞，直到发送线程发送了 Condition 信号，等待线程才继续执行后面的任务。Condition 对象提供了一种更加灵活的线程通信方式，可以精确地控制线程的等待和唤醒。
+
+#### [#](#小结) 小结
+
+线程通讯指的是多个线程之间通过共享内存或消息传递等方式来协调和同步它们的执行，它的实现方法有很多：比如 wait() 和 notify() 的等待和通知机制、Semaphore 信号量机制、CyclicBarrier 栅栏机制，以及 Condition 的锁机制等。
+
+### 7.如何停止线程？
+
+在 Java 中，可以通过调用线程的 interrupt() 方法来中止线程。但是，这并不意味着线程会立即停止执行，它只是设置了一个中断标志，线程可以通过检查这个标志来自行终止。 具体来说，当线程被中断时，可以通过以下方式来检查中断标志：
+
+1. 调用 Thread.currentThread().isInterrupted() 方法检查当前线程是否被中断。
+2. 调用 Thread.interrupted() 方法检查当前线程是否被中断，并清除中断状态。
+
+在实际应用中，如果需要中止一个线程，可以在执行任务的循环中检查中断标志，如果中断标志被设置，则退出循环，从而中止线程的执行。
+
+下面是一个简单的示例代码，演示如何使用中断标志来中止线程：
+
+
+
+```java
+public class MyRunnable implements Runnable {
+    @Override
+    public void run() {
+        try {
+            // 判断线程是否中止
+            while (!Thread.currentThread().isInterrupted()) {
+                // 执行任务
+            }
+        } catch (InterruptedException e) {
+            // 处理异常
+        } finally {
+            // 执行清理操作
+        }
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        Thread t = new Thread(new MyRunnable());
+        t.start();
+        
+        // 中止线程
+        t.interrupt();
+    }
+}
+```
+
+在上面的示例代码中，MyRunnable 类实现了 Runnable 接口，重写了 run() 方法，在方法中使用了中断标志来控制循环的执行。在 Main 类中，创建了一个 MyRunnable 对象，并通过 Thread 类将其封装成一个线程。然后，通过调用 interrupt() 方法来中止线程的执行。在 MyRunnable 类的 run() 方法中，检查了线程的中断状态，并在中断状态被设置时退出了循环，从而中止了线程的执行。
+
+### 8.线程池有什么优点？
+
+线程池是一种管理和复用线程资源的机制，它由一个线程池管理器和一组工作线程组成。线程池管理器负责创建和销毁线程池，以及管理线程池中的工作线程。工作线程则负责执行具体的任务。
+
+线程池的主要作用是管理和复用线程资源，避免了线程的频繁创建和销毁所带来的开销。 线程池包含两个重要的组成部分：
+
+1. 线程池大小：指线程池中所能容纳的最大线程数。线程池大小一般根据系统的负载情况和硬件资源来设置。
+2. 工作队列：用于存放等待执行的任务。当线程池中的工作线程已经全部被占用时，新的任务将被加入到工作队列中等待执行。
+
+#### [#](#线程池创建方式) 线程池创建方式
+
+Java中线程池的创建方式主要有以下几种：
+
+1. 使用 ThreadPoolExecutor 类手动创建：通过 ThreadPoolExecutor 类的构造函数自定义线程池的参数，包括核心线程数、最大线程数、线程存活时间、任务队列等。
+2. 使用 Executors 类提供的工厂方法创建：通过 Executors 类提供的一些静态工厂方法创建线程池，例如 newFixedThreadPool、newSingleThreadExecutor、newCachedThreadPool 等。
+3. 使用 Spring 框架提供的 ThreadPoolTaskExecutor 类：在 Spring 框架中可以通过 ThreadPoolTaskExecutor 类来创建线程池。
+
+不同的创建方式适用于不同的场景，通常可以根据实际情况选择合适的方式创建线程池。手动创建 ThreadPoolExecutor 类可以灵活地配置线程池参数，但需要对线程池的各项参数有一定的了解；使用 Executors 工厂方法可以快速创建线程池，但可能无法满足特定的需求，且容易出现内存溢出的情况；而 Spring 框架提供的 ThreadPoolTaskExecutor 类则只能在 Spring 框架中使用。
+
+#### [#](#线程池使用) 线程池使用
+
+#### [#](#threadpoolexecutor-使用) ThreadPoolExecutor 使用
+
+ThreadPoolExecutor 线程的创建与使用示例如下：
+
+
+
+```java
+import java.util.concurrent.*;
+
+public class ThreadPoolDemo {
+
+    public static void main(String[] args) {
+        // 创建线程池
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+            2, // 核心线程数
+            5, // 最大线程数
+            60, // 线程池中线程的空闲时间（单位为秒）
+            TimeUnit.SECONDS, // 时间单位
+            new ArrayBlockingQueue<>(10) // 任务队列
+        );
+        // 提交任务
+        for (int i = 1; i <= 20; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                System.out.println("执行任务：" + taskId + "，线程名称：" + Thread.currentThread().getName());
+                try {
+                    Thread.sleep(1000); // 模拟任务执行时间
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+        // 关闭线程池
+        executor.shutdown();
+    }
+}
+```
+
+在上面的示例中，我们通过 ThreadPoolExecutor 类手动创建了一个线程池，设置了线程池的核心线程数为 2，最大线程数为 5，线程空闲时间为 60 秒，任务队列为长度为 10 的 ArrayBlockingQueue。然后我们通过 submit() 方法向线程池中提交了 20 个任务，每个任务会在执行时输出自己的编号和执行线程的名称，然后睡眠1秒钟模拟任务执行时间。最后，我们调用 shutdown() 方法关闭线程池。
+
+#### [#](#executors-使用) Executors 使用
+
+
+
+```java
+import java.util.concurrent.*;
+
+public class ExecutorsDemo {
+    public static void main(String[] args) {
+        // 创建线程池
+        ExecutorService executor = Executors.newFixedThreadPool(5);
+        // 提交任务
+        for (int i = 1; i <= 10; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                System.out.println("执行任务：" + taskId + "，线程名称：" + Thread.currentThread().getName());
+                try {
+                    Thread.sleep(1000); // 模拟任务执行时间
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+        // 关闭线程池
+        executor.shutdown();
+    }
+}
+```
+
+在上面的示例中，我们使用了 Executors 工厂类中的 newFixedThreadPool() 方法创建了一个线程池，该线程池有 5 个固定线程。然后我们通过 submit() 方法向线程池中提交了 10 个任务，每个任务会在执行时输出自己的编号和执行线程的名称，然后睡眠 1 秒钟模拟任务执行时间。 最后，我们调用 shutdown() 方法关闭线程池。值得注意的是，使用 Executors 工厂类创建线程池虽然非常简单，但是在实际生产环境中并不推荐，因为这种方式很容易导致线程资源被耗尽，从而影响系统的性能和稳定性。
+
+#### [#](#threadpooltaskexecutor-使用) ThreadPoolTaskExecutor 使用
+
+Spring 中 ThreadPoolTaskExecutor 的使用示例如下：
+
+
+
+```java
+import java.util.concurrent.*;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+public class ThreadPoolTaskExecutorDemo {
+
+    public static void main(String[] args) {
+        // 创建线程池
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2); // 核心线程数
+        executor.setMaxPoolSize(5); // 最大线程数
+        executor.setQueueCapacity(10); // 任务队列长度
+        executor.initialize();
+        // 提交任务
+        for (int i = 1; i <= 20; i++) {
+            final int taskId = i;
+            executor.submit(() -> {
+                System.out.println("执行任务：" + taskId + "，线程名称：" + Thread.currentThread().getName());
+                try {
+                    Thread.sleep(1000); // 模拟任务执行时间
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+        // 关闭线程池
+        executor.shutdown();
+    }
+}
+```
+
+在上面的示例中，我们使用了 Spring 框架中的 ThreadPoolTaskExecutor 类创建了一个线程池，设置了线程池的核心线程数为 2，最大线程数为 5，任务队列长度为 10。然后我们通过 submit() 方法向线程池中提交了 20 个任务，每个任务会在执行时输出自己的编号和执行线程的名称，然后睡眠1秒钟模拟任务执行时间。最后，我们调用 shutdown() 方法关闭线程池。注意，在使用 Spring 框架中的 ThreadPoolTaskExecutor 类创建线程池时，我们需要先调用 initialize() 方法进行初始化。
+
+> ThreadPoolTaskExecutor 底层还是通过 JDK 中提供的 ThreadPoolExecutor 类实现的。
+
+#### [#](#线程池优点详解) 线程池优点详解
+
+线程池相比于线程来说，它不需要频繁的创建和销毁线程，线程一旦创建之后，默认情况下就会一直保持在线程池中，等到有任务来了，再用这些已有的线程来执行任务，如下图所示：![image.png](https://javacn.site/image/1643163207461-87b04d2a-b8fb-4a18-9b39-85bea0cd6e9a.png)
+
+#### [#](#优点1-复用线程-降低资源消耗) 优点1：复用线程，降低资源消耗
+
+线程在创建时要开辟虚拟机栈、本地方法栈、程序计数器等私有线程的内存空间，而销毁时又要回收这些私有空间资源，如下图所示： ![image.png](https://javacn.site/image/1643164009933-de38fae0-2e8b-474d-8ada-1c843cedf602.png) 而线程池创建了线程之后就会放在线程池中，因此线程池相比于线程来说，第一个优点就是**可以复用线程、减低系统资源的消耗**。
+
+#### [#](#优点2-提高响应速度) 优点2：提高响应速度
+
+线程池是复用已有线程来执行任务的，而线程是在有任务时才新建的，所以相比于线程来说，线程池能够更快的响应任务和执行任务。
+
+#### [#](#优点3-管控线程数和任务数) 优点3：管控线程数和任务数
+
+线程池提供了更多的管理功能，这里管理功能主要体现在以下两个方面：
+
+1. 控制最大并发数：线程池可以创建固定的线程数，从而避免了无限创建线程的问题。当线程创建过多时，会导致系统执行变慢，因为 CPU 核数是一定的、能同时处理的任务数也是一定的，而线程过多时就会造成线程恶意争抢和线程频繁切换的问题，从而导致程序执行变慢，所以合适的线程数才是高性能运行的关键。
+2. 控制任务最大数：如果任务无限多，而内存又不足的情况下，就会导致程序执行报错，而线程池可以控制最大任务数，当任务超过一定数量之后，就会采用拒绝策略来处理多出的任务，从而保证了系统可以健康的运行。
+
+#### [#](#优点4-更多增强功能) 优点4：更多增强功能
+
+线程池相比于线程来说提供了更多的功能，比如定时执行和周期执行等功能。
+
+#### [#](#小结) 小结
+
+线程池是一种管理和复用线程资源的机制。相比于线程，它具备四个主要优势：1.复用线程，降低了资源消耗；2.提高响应速度；3.提供了管理线程数和任务数的能力；4.更多增强功能。
+
+### 9.说一下线程池参数的意义？
+
+问的线程池的参数含义，一定指的是手动创建线程池 ThreadPoolExecutor 参数的含义。 ThreadPoolExecutor 最多包含 7 个参数，如以下源码所示：
+
+
+
+```java
+public ThreadPoolExecutor(int corePoolSize,
+                          int maximumPoolSize,
+                          long keepAliveTime,
+                          TimeUnit unit,
+                          BlockingQueue<Runnable> workQueue,
+                          ThreadFactory threadFactory,
+                          RejectedExecutionHandler handler) {
+    //...
+}
+```
+
+这 7 个参数分别是：
+
+1. corePoolSize：核心线程数。
+2. maximumPoolSize：最大线程数。
+3. keepAliveTime：空闲线程存活时间。
+4. TimeUnit：时间单位。
+5. BlockingQueue：线程池任务队列。
+6. ThreadFactory：创建线程的工厂。
+7. RejectedExecutionHandler：拒绝策略。
+
+#### [#](#参数1-corepoolsize) 参数1：corePoolSize
+
+**核心线程数：是指线程池中长期存活的线程数。**
+
+> 这就好比古代大户人家，会长期雇佣一些“长工”来给他们干活，这些人一般比较稳定，无论这一年的活多活少，这些人都不会被辞退，都是长期生活在大户人家的。
+
+#### [#](#参数2-maximumpoolsize) 参数2：maximumPoolSize
+
+**最大线程数：线程池允许创建的最大线程数量，当线程池的任务队列满了之后，可以创建的最大线程数。**
+
+> 这是古代大户人家最多可以雇佣的人数，比如某个节日或大户人家有人过寿时，因为活太多，仅靠“长工”是完不成任务，这时就会再招聘一些“短工”一起来干活，这个最大线程数就是“长工”+“短工”的总人数，也就是招聘的人数不能超过 maximumPoolSize。
+
+#### [#](#注意事项) 注意事项
+
+最大线程数 maximumPoolSize 的值不能小于核心线程数 corePoolSize，否则在程序运行时会报 IllegalArgumentException 非法参数异常，如下图所示： ![image.png](https://javacn.site/image/1643183657709-dc15ad1c-52c8-4b00-b04a-38c5a342ec98.png)
+
+#### [#](#参数3-keepalivetime) 参数3：keepAliveTime
+
+**空闲线程存活时间，当线程池中没有任务时，会销毁一些线程，销毁的线程数=maximumPoolSize（最大线程数）-corePoolSize（核心线程数）。**
+
+> 还是以大户人家为例，当大户人家比较忙的时候就会雇佣一些“短工”来干活，但等干完活之后，不忙了，就会将这些“短工”辞退掉，而 keepAliveTime 就是用来描述没活之后，短工可以在大户人家待的（最长）时间。
+
+#### [#](#参数4-timeunit) 参数4：TimeUnit
+
+**时间单位：空闲线程存活时间的描述单位**，此参数是配合参数 3 使用的。 参数 3 是一个 long 类型的值，比如参数 3 传递的是 1，那么这个 1 表示的是 1 天？还是 1 小时？还是 1 秒钟？是由参数 4 说了算的。 TimeUnit 有以下 7 个值：
+
+1. TimeUnit.DAYS：天
+2. TimeUnit.HOURS：小时
+3. TimeUnit.MINUTES：分
+4. TimeUnit.SECONDS：秒
+5. TimeUnit.MILLISECONDS：毫秒
+6. TimeUnit.MICROSECONDS：微妙
+7. TimeUnit.NANOSECONDS：纳秒
+
+#### [#](#参数5-blockingqueue) 参数5：BlockingQueue
+
+**阻塞队列：线程池存放任务的队列，用来存储线程池的所有待执行任务。** 它可以设置以下几个值：
+
+1. ArrayBlockingQueue：一个由数组结构组成的有界阻塞队列。
+2. LinkedBlockingQueue：一个由链表结构组成的有界阻塞队列。
+3. SynchronousQueue：一个不存储元素的阻塞队列，即直接提交给线程不保持它们。
+4. PriorityBlockingQueue：一个支持优先级排序的无界阻塞队列。
+5. DelayQueue：一个使用优先级队列实现的无界阻塞队列，只有在延迟期满时才能从中提取元素。
+6. LinkedTransferQueue：一个由链表结构组成的无界阻塞队列。与SynchronousQueue类似，还含有非阻塞方法。
+7. LinkedBlockingDeque：一个由链表结构组成的双向阻塞队列。
+
+比较常用的是 LinkedBlockingQueue，线程池的排队策略和 BlockingQueue 息息相关。
+
+#### [#](#参数6-threadfactory) 参数6：ThreadFactory
+
+**线程工厂：线程池创建线程时调用的工厂方法，通过此方法可以设置线程的优先级、线程命名规则以及线程类型（用户线程还是守护线程）等。** 线程工厂的使用示例如下：
+
+
+
+```java
+public static void main(String[] args) {
+    // 创建线程工厂
+    ThreadFactory threadFactory = new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable r) {
+            // 创建线程池中的线程
+            Thread thread = new Thread(r);
+            // 设置线程名称
+            thread.setName("Thread-" + r.hashCode());
+            // 设置线程优先级（最大值：10）
+            thread.setPriority(Thread.MAX_PRIORITY);
+            //......
+            return thread;
+        }
+    };
+    // 创建线程池
+    ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(10, 10, 0,
+                                                                   TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+                                                                   threadFactory); // 使用自定义的线程工厂
+    threadPoolExecutor.submit(new Runnable() {
+        @Override
+        public void run() {
+            Thread thread = Thread.currentThread();
+            System.out.println(String.format("线程：%s，线程优先级：%d",
+                                             thread.getName(), thread.getPriority()));
+        }
+    });
+}
+```
+
+以上程序的执行结果如下：![image.png](https://javacn.site/image/1643185011046-3e5f7f49-7c50-42aa-8b3b-a1c2ed21ed47.png) 从上述执行结果可以看出，自定义线程工厂起作用了，线程的名称和线程的优先级都是通过线程工厂设置的。
+
+#### [#](#参数7-rejectedexecutionhandler) 参数7：RejectedExecutionHandler
+
+**拒绝策略：当线程池的任务超出线程池队列可以存储的最大值之后，执行的策略。** 默认的拒绝策略有以下 4 种：
+
+- AbortPolicy：拒绝并抛出异常。
+- CallerRunsPolicy：使用当前调用的线程来执行此任务。
+- DiscardOldestPolicy：抛弃队列头部（最旧）的一个任务，并执行当前任务。
+- DiscardPolicy：忽略并抛弃当前任务。
+
+线程池的默认策略是 AbortPolicy 拒绝并抛出异常。
+
+#### [#](#小结) 小结
+
+本文介绍了线程池的 7 大参数：
+
+1. corePoolSize：核心线程数，线程池正常情况下保持的线程数，大户人家“长工”的数量。
+2. maximumPoolSize：最大线程数，当线程池繁忙时最多可以拥有的线程数，大户人家“长工”+“短工”的总数量。
+3. keepAliveTime：空闲线程存活时间，没有活之后“短工”可以生存的最大时间。
+4. TimeUnit：时间单位，配合参数 3 一起使用，用于描述参数 3 的时间单位。
+5. BlockingQueue：线程池的任务队列，用于保存线程池待执行任务的容器。
+6. ThreadFactory：线程工厂，用于创建线程池中线程的工厂方法，通过它可以设置线程的命名规则、优先级和线程类型。
+7. RejectedExecutionHandler：拒绝策略，当任务量超过线程池可以保存的最大任务数时，执行的策略。
+
+### 10.线程池如何执行，拒绝策略有哪些？
+
+要搞懂线程池的执行流程，最好的方式是去看它的源码，它的源码如下：
+
+
+
+```java
+public void execute(Runnable command) {
+    if (command == null)
+        throw new NullPointerException();
+    int c = ctl.get();
+    // 当前工作的线程数小于核心线程数
+    if (workerCountOf(c) < corePoolSize) {
+        // 创建新的线程执行此任务
+        if (addWorker(command, true))
+            return;
+        c = ctl.get();
+    }
+    // 检查线程池是否处于运行状态，如果是则把任务添加到队列
+    if (isRunning(c) && workQueue.offer(command)) {
+        int recheck = ctl.get();
+        // 再次检线程池是否处于运行状态，防止在第一次校验通过后线程池关闭
+        // 如果是非运行状态，则将刚加入队列的任务移除
+        if (! isRunning(recheck) && remove(command))
+            reject(command);
+        // 如果线程池的线程数为 0 时（当 corePoolSize 设置为 0 时会发生）
+        else if (workerCountOf(recheck) == 0)
+            addWorker(null, false); // 新建线程执行任务
+    }
+    // 核心线程都在忙且队列都已爆满，尝试新启动一个线程执行失败
+    else if (!addWorker(command, false)) 
+        // 执行拒绝策略
+        reject(command);
+}
+```
+
+从上述源码我们可以看出，当任务来了之后，**线程池的执行流程是：先判断当前线程数是否大于核心线程数？如果结果为 false，则新建线程并执行任务；如果结果为 true，则判断任务队列是否已满？如果结果为 false，则把任务添加到任务队列中等待线程执行，否则则判断当前线程数量是否超过最大线程数？如果结果为 false，则新建线程执行此任务，否则将执行线程池的拒绝策略**，如下图所示：![image.png](https://javacn.site/image/1643197315390-fc6734df-ee2d-4c80-b623-d9b48958ba69.png)
+
+#### [#](#线程池拒绝策略) 线程池拒绝策略
+
+当任务过多且线程池的任务队列已满时，此时就会执行线程池的拒绝策略，线程池的拒绝策略默认有以下 4 种：
+
+1. AbortPolicy：中止策略，线程池会抛出异常并中止执行此任务；
+2. CallerRunsPolicy：把任务交给添加此任务的（main）线程来执行；
+3. DiscardPolicy：忽略此任务，忽略最新的一个任务；
+4. DiscardOldestPolicy：忽略最早的任务，最先加入队列的任务。
+
+默认的拒绝策略为 AbortPolicy 中止策略。
+
+#### [#](#discardpolicy拒绝策略) DiscardPolicy拒绝策略
+
+接下来我们以 DiscardPolicy 忽略此任务，忽略最新的一个任务为例，演示一下拒绝策略的具体使用，实现代码如下：
+
+
+
+```java
+public static void main(String[] args) {
+    // 任务的具体方法
+    Runnable runnable = new Runnable() {
+        @Override
+        public void run() {
+            System.out.println("当前任务被执行,执行时间:" + new Date() +
+                               " 执行线程:" + Thread.currentThread().getName());
+            try {
+                // 等待 1s
+                TimeUnit.SECONDS.sleep(1);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    };
+    // 创建线程,线程的任务队列的长度为 1
+    ThreadPoolExecutor threadPool = new ThreadPoolExecutor(1, 1,
+                                                           100, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1),
+                                                           new ThreadPoolExecutor.DiscardPolicy());
+    // 添加并执行 4 个任务
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    // 线程池执行完任务，关闭线程池
+    threadPool.shutdown();
+}
+```
+
+以上程序的执行结果如下： ![image.png](https://javacn.site/image/1643198263954-9240ff07-21c7-42f9-8322-b91a1db646b4.png)从上述执行结果可以看出，给线程池添加了 4 个任务，而线程池只执行了 2 个任务就结束了，其他两个任务执行了拒绝策略 DiscardPolicy 被忽略了，这就是拒绝策略的作用。
+
+#### [#](#abortpolicy拒绝策略) AbortPolicy拒绝策略
+
+为了和 DiscardPolicy 拒绝策略对比，我们来演示一下 JDK 默认的拒绝策略 AbortPolicy 中止策略，线程池会抛出异常并中止执行此任务，示例代码如下：
+
+
+
+```java
+public static void main(String[] args) {
+    // 任务的具体方法
+    Runnable runnable = new Runnable() {
+        @Override
+        public void run() {
+            System.out.println("当前任务被执行,执行时间:" + new Date() +
+                               " 执行线程:" + Thread.currentThread().getName());
+            try {
+                // 等待 1s
+                TimeUnit.SECONDS.sleep(1);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    };
+    // 创建线程,线程的任务队列的长度为 1
+    ThreadPoolExecutor threadPool = new ThreadPoolExecutor(1, 1,
+                                                           100, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1),
+                                                           new ThreadPoolExecutor.AbortPolicy()); // 显式指定拒绝策略，也可以忽略此设置，它为默认拒绝策略
+    // 添加并执行 4 个任务
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    // 线程池执行完任务，关闭线程池
+    threadPool.shutdown();
+}
+```
+
+以上程序的执行结果如下： ![image.png](https://javacn.site/image/1643198623428-413dd4ce-77a2-4d87-83ae-50a4d034c955.png) 从结果可以看出，给线程池添加了 4 个任务，线程池正常执行了 2 个任务，其他两个任务执行了中止策略，并抛出了拒绝执行的异常 RejectedExecutionException。
+
+#### [#](#自定义拒绝策略) 自定义拒绝策略
+
+当然除了 JDK 提供的四种拒绝策略之外，我们还可以实现通过 new RejectedExecutionHandler，并重写 rejectedExecution 方法来实现自定义拒绝策略，实现代码如下：
+
+
+
+```java
+public static void main(String[] args) {
+    // 任务的具体方法
+    Runnable runnable = new Runnable() {
+        @Override
+        public void run() {
+            System.out.println("当前任务被执行,执行时间:" + new Date() +
+                               " 执行线程:" + Thread.currentThread().getName());
+            try {
+                // 等待 1s
+                TimeUnit.SECONDS.sleep(1);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    };
+    // 创建线程,线程的任务队列的长度为 1
+    ThreadPoolExecutor threadPool = new ThreadPoolExecutor(1, 1,
+                                                           100, TimeUnit.SECONDS, new LinkedBlockingQueue<>(1),
+                                                           new RejectedExecutionHandler() {
+                                                               @Override
+                                                               public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+                                                                   // 执行自定义拒绝策略的相关操作
+                                                                   System.out.println("我是自定义拒绝策略~");
+                                                               }
+                                                           });
+    // 添加并执行 4 个任务
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+    threadPool.execute(runnable);
+}
+```
+
+以上程序的执行结果如下：![image.png](https://javacn.site/image/1643197939009-1ce5f5b8-82c0-4184-884f-6b90eee8a6af.png)
+
+#### [#](#小结) 小结
+
+线程池的执行流程有 3 个重要的判断点（判断顺序依次往后）：判断当前线程数和核心线程数、判断当前任务队列是否已满、判断当前线程数是否已达到最大线程数。如果经过以上 3 个判断，得到的结果都会 true，则会执行线程池的拒绝策略。JDK 提供了 4 种拒绝策略，我们还可以通过 new RejectedExecutionHandler 并重写 rejectedExecution 方法来实现自定义拒绝策略。
+
+
+
+
+
+
+
+
+
 
 
 
