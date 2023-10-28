@@ -1249,6 +1249,40 @@ public static void main(String[] args) {
 
 线程池的执行流程有 3 个重要的判断点（判断顺序依次往后）：判断当前线程数和核心线程数、判断当前任务队列是否已满、判断当前线程数是否已达到最大线程数。如果经过以上 3 个判断，得到的结果都会 true，则会执行线程池的拒绝策略。JDK 提供了 4 种拒绝策略，我们还可以通过 new RejectedExecutionHandler 并重写 rejectedExecution 方法来实现自定义拒绝策略。
 
+### 11.如何停止线程池？
+
+在 Java 中，停止线程池可以通过以下两个步骤来实现：
+
+1. 调用方法停止线程池： 
+   1. 调用线程池的 shutdown() 方法来关闭线程池。该方法会停止线程池的接受新任务，并尝试将所有未完成的任务完成执行；
+   2. 调用线程池的 shutdownNow() 方法来关闭线程池。该方法会停止线程池的接受新任务，并尝试停止所有正在执行的任务。该方法会返回一个未完成任务的列表，这些任务将被取消。
+2. 等待线程池停止：在关闭线程池后，通过调用 awaitTermination() 方法来等待所有任务完成执行。该方法会阻塞当前线程，直到所有任务完成执行或者等待超时。
+
+下面是一个示例代码，演示如何中止线程池：
+
+
+
+```java
+ExecutorService executor = Executors.newFixedThreadPool(10);
+// 提交任务到线程池
+for (int i = 0; i < 100; i++) {
+    executor.submit(new MyTask());
+}
+// 关闭线程池
+executor.shutdown();
+try {
+    // 等待所有任务完成执行
+    if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+        // 如果等待超时，强制关闭线程池
+        executor.shutdownNow();
+    }
+} catch (InterruptedException e) {
+    // 处理异常
+}
+```
+
+在上面的示例代码中，首先创建了一个线程池，然后提交了 100 个任务到线程池中。然后，通过调用 shutdown() 方法关闭线程池，再通过调用 awaitTermination() 方法等待所有任务完成执行。如果等待超时，将强制调用 shutdownNow() 方法来停止所有正在执行的任务。最后，在 catch 块中处理中断异常。
+
 
 
 
