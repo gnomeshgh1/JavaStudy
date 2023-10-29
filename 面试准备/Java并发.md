@@ -1283,6 +1283,1049 @@ try {
 
 在上面的示例代码中，首先创建了一个线程池，然后提交了 100 个任务到线程池中。然后，通过调用 shutdown() 方法关闭线程池，再通过调用 awaitTermination() 方法等待所有任务完成执行。如果等待超时，将强制调用 shutdownNow() 方法来停止所有正在执行的任务。最后，在 catch 块中处理中断异常。
 
+### 12.如何判断线程池任务已执行完？
+
+无论是在项目开发中，还是在面试中过程中，总会被问到或使用到并发编程来完成项目中的某个功能。
+
+例如某个复杂的查询，无法使用一个查询语句来完成此功能，此时我们就需要执行多个查询语句，然后再将各自查询的结果，组装之后返回给前端了，那么这种场景下，我们就必须使用线程池来进行并发查询了。
+
+> PS：磊哥做的最复杂的查询，总共关联了 21 张表，在和产品及需求方的多次沟通下，才将查询的业务从 21 张表，降到了至少要查询 12 张表（非常难搞），那么这种场景下是无法使用一个查询语句来实现的，那么并发查询是必须要给安排上的。
+
+#### [#](#_1-需求分析) 1.需求分析
+
+线程池的使用并不复杂，麻烦的是如何判断线程池中的任务已经全部执行完了？因为我们要等所有任务都执行完之后，才能进行数据的组装和返回，所以接下来，我们就来看如何判断线程中的任务是否已经全部执行完？
+
+#### [#](#_2-实现概述) 2.实现概述
+
+判断线程池中的任务是否执行完的方法有很多，比如以下几个：
+
+1. 使用 getCompletedTaskCount() 统计已经执行完的任务，和 getTaskCount() 线程池的总任务进行对比，如果相等则说明线程池的任务执行完了，否则既未执行完。
+2. 使用 FutureTask 等待所有任务执行完，线程池的任务就执行完了。
+3. 使用 CountDownLatch 或 CyclicBarrier 等待所有线程都执行完之后，再执行后续流程。
+
+具体实现代码如下。
+
+#### [#](#_3-具体实现) 3.具体实现
+
+#### [#](#_3-1-统计完成任务数) 3.1 统计完成任务数
+
+通过判断线程池中的计划执行任务数和已完成任务数，来判断线程池是否已经全部执行完，如果**计划执行任务数=已完成任务数**，那么线程池的任务就全部执行完了，否则就未执行完。
+
+示例代码如下：
+
+
+
+```java
+private static void isCompletedByTaskCount(ThreadPoolExecutor threadPool) {
+    while (threadPool.getTaskCount() != threadPool.getCompletedTaskCount()) {
+    }
+}
+```
+
+以上程序执行结果如下：
+
+![img](https://javacn.site/image/1690946153714-05a562a0-2075-47e6-b9c9-72ddc8893347.png)
+
+**方法说明**
+
+- getTaskCount()：返回计划执行的任务总数。由于任务和线程的状态可能在计算过程中动态变化，因此返回的值只是一个近似值。
+- getCompletedTaskCount()：返回完成执行任务的总数。因为任务和线程的状态可能在计算过程中动态地改变，所以返回的值只是一个近似值，但是在连续的调用中并不会减少。
+
+**缺点分析**
+
+此判断方法的缺点是 getTaskCount() 和 getCompletedTaskCount() 返回的是一个近似值，因为线程池中的任务和线程的状态可能在计算过程中动态变化，所以它们两个返回的都是一个近似值。
+
+#### [#](#_3-2-futuretask) 3.2 FutureTask
+
+FutrueTask 的优势是任务判断精准，调用每个 FutrueTask 的 get 方法就是等待该任务执行完，如下代码所示：
+
+
+
+```java
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
+
+/**
+ * 使用 FutrueTask 等待线程池执行完全部任务
+ */
+public class FutureTaskDemo {
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+        // 创建一个固定大小的线程池
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        // 创建任务
+        FutureTask<Integer> task1 = new FutureTask<>(() -> {
+            System.out.println("Task 1 start");
+            Thread.sleep(2000);
+            System.out.println("Task 1 end");
+            return 1;
+        });
+        FutureTask<Integer> task2 = new FutureTask<>(() -> {
+            System.out.println("Task 2 start");
+            Thread.sleep(3000);
+            System.out.println("Task 2 end");
+            return 2;
+        });
+        FutureTask<Integer> task3 = new FutureTask<>(() -> {
+            System.out.println("Task 3 start");
+            Thread.sleep(1500);
+            System.out.println("Task 3 end");
+            return 3;
+        });
+        // 提交三个任务给线程池
+        executor.submit(task1);
+        executor.submit(task2);
+        executor.submit(task3);
+
+        // 等待所有任务执行完毕并获取结果
+        int result1 = task1.get();
+        int result2 = task2.get();
+        int result3 = task3.get();
+        System.out.println("Do main thread.");
+    }
+}
+```
+
+以上程序的执行结果如下：
+
+![img](https://javacn.site/image/1690946467682-939e4921-d168-4bc1-8aec-de9625c783cd.png)
+
+#### [#](#_3-3-countdownlatch和cyclicbarrier) 3.3 CountDownLatch和CyclicBarrier
+
+CountDownLatch 和 CyclicBarrier 类似，都是等待所有任务到达某个点之后，再进行后续的操作，如下图所示：
+
+![img](https://javacn.site/image/1642477854879-c3ff68ae-0917-4482-8c05-1d97d718b5cf.gif)
+
+CountDownLatch 使用的示例代码如下：
+
+
+
+```java
+public static void main(String[] args) throws InterruptedException {
+    // 创建线程池
+    ThreadPoolExecutor threadPool = new ThreadPoolExecutor(10, 20,
+    	0, TimeUnit.SECONDS, new LinkedBlockingDeque<>(1024));
+    final int taskCount = 5;    // 任务总数
+    // 单次计数器
+    CountDownLatch countDownLatch = new CountDownLatch(taskCount); // ①
+    // 添加任务
+    for (int i = 0; i < taskCount; i++) {
+        final int finalI = i;
+        threadPool.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // 随机休眠 0-4s
+                    int sleepTime = new Random().nextInt(5);
+                    TimeUnit.SECONDS.sleep(sleepTime);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                System.out.println(String.format("任务%d执行完成", finalI));
+                // 线程执行完，计数器 -1
+                countDownLatch.countDown();  // ②
+            }
+        });
+    }
+    // 阻塞等待线程池任务执行完
+    countDownLatch.await();  // ③
+    // 线程池执行完
+    System.out.println();
+    System.out.println("线程池任务执行完成！");
+}
+```
+
+> 代码说明：以上代码中标识为 ①、②、③ 的代码行是核心实现代码，其中：
+>
+> ① 是声明一个包含了 5 个任务的计数器；
+>
+> ② 是每个任务执行完之后计数器 -1；
+>
+> ③ 是阻塞等待计数器 CountDownLatch 减为 0，表示任务都执行完了，可以执行 await 方法后面的业务代码了。
+
+以上程序的执行结果如下：
+
+![img](https://javacn.site/image/1642477077446-3921af47-848d-4a53-a5a2-58e571cc03ce.png)
+
+**缺点分析**
+
+CountDownLatch 缺点是计数器只能使用一次，CountDownLatch 创建之后不能被重复使用。
+
+CyclicBarrier 和 CountDownLatch 类似，它可以理解为一个可以重复使用的循环计数器，CyclicBarrier 可以调用 reset 方法将自己重置到初始状态，CyclicBarrier 具体实现代码如下：
+
+
+
+```java
+public static void main(String[] args) throws InterruptedException {
+    // 创建线程池
+    ThreadPoolExecutor threadPool = new ThreadPoolExecutor(10, 20,
+    	0, TimeUnit.SECONDS, new LinkedBlockingDeque<>(1024));
+    final int taskCount = 5;    // 任务总数
+    // 循环计数器 ①
+    CyclicBarrier cyclicBarrier = new CyclicBarrier(taskCount, new Runnable() {
+        @Override
+        public void run() {
+            // 线程池执行完
+            System.out.println();
+            System.out.println("线程池所有任务已执行完！");
+        }
+    });
+    // 添加任务
+    for (int i = 0; i < taskCount; i++) {
+        final int finalI = i;
+        threadPool.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // 随机休眠 0-4s
+                    int sleepTime = new Random().nextInt(5);
+                    TimeUnit.SECONDS.sleep(sleepTime);
+                    System.out.println(String.format("任务%d执行完成", finalI));
+                    // 线程执行完
+                    cyclicBarrier.await(); // ②
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } catch (BrokenBarrierException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+}
+```
+
+以上程序的执行结果如下：
+
+![img](https://javacn.site/image/1642478691437-1d4a9b32-dc55-4439-a818-bc5374993324.png)
+
+**方法说明**
+
+CyclicBarrier 有 3 个重要的方法：
+
+1. 构造方法：构造方法可以传递两个参数，参数 1 是计数器的数量 parties，参数 2 是计数器为 0 时，也就是任务都执行完之后可以执行的事件（方法）。
+2. await 方法：在 CyclicBarrier 上进行阻塞等待，当调用此方法时 CyclicBarrier 的内部计数器会 -1，直到发生以下情形之一： 
+   1. 在 CyclicBarrier 上等待的线程数量达到 parties，也就是计数器的声明数量时，则所有线程被释放，继续执行。
+   2. 当前线程被中断，则抛出 InterruptedException 异常，并停止等待，继续执行。
+   3. 其他等待的线程被中断，则当前线程抛出 BrokenBarrierException 异常，并停止等待，继续执行。
+   4. 其他等待的线程超时，则当前线程抛出 BrokenBarrierException 异常，并停止等待，继续执行。
+   5. 其他线程调用 CyclicBarrier.reset() 方法，则当前线程抛出 BrokenBarrierException 异常，并停止等待，继续执行。
+3. reset 方法：使得CyclicBarrier回归初始状态，直观来看它做了两件事： 
+   1. 如果有正在等待的线程，则会抛出 BrokenBarrierException 异常，且这些线程停止等待，继续执行。
+   2. 将是否破损标志位 broken 置为 false。
+
+**优缺点分析**
+
+CyclicBarrier 从设计的复杂度到使用的复杂度都高于 CountDownLatch，相比于 CountDownLatch 来说它的优点是可以重复使用（只需调用 reset 就能恢复到初始状态），缺点是使用难度较高。
+
+#### [#](#小结) 小结
+
+在实现判断线程池任务是否执行完成的方案中，通过统计线程池执行完任务的方式（实现方法 1），以及实现方法 3（CountDownLatch 或 CyclicBarrier）等统计，都是“不记名”的，只关注数量，不关注（具体）对象，所以这些方式都有可能受到外界代码的影响，因此使用 FutureTask 等待具体任务执行完的方式是最推荐的判断方法。
+
+### 13.什么是Volatile？
+
+volatile 是一种关键字，用于保证多线程情况下共享变量的可见性。当一个变量被声明为 volatile 时，每个线程在访问该变量时都会立即刷新其本地内存（工作内存）中该变量的值，确保所有线程都能读到最新的值。并且使用 volatile 可以禁止指令重排序，这样就能有效的预防，因为指令优化（重排序）而导致的线程安全问题。
+
+也就是说 volatile 有两个主要功能：保证内存可见性和禁止指令重排序。下来我们具体来看这两个功能。
+
+#### [#](#内存可见性) 内存可见性
+
+说到内存可见性问题就不得不提 Java 内存模型，Java 内存模型（Java Memory Model）简称为 JMM，主要是用来屏蔽不同硬件和操作系统的内存访问差异的，因为在不同的硬件和不同的操作系统下，内存的访问是有一定的差异得，这种差异会导致相同的代码在不同的硬件和不同的操作系统下有着不一样的行为，而 Java 内存模型就是解决这个差异，统一相同代码在不同硬件和不同操作系统下的差异的。
+
+Java 内存模型规定：所有的变量（实例变量和静态变量）都必须存储在主内存中，每个线程也会有自己的工作内存，线程的工作内存保存了该线程用到的变量和主内存的副本拷贝，线程对变量的操作都在工作内存中进行。线程不能直接读写主内存中的变量，如下图所示： ![image.png](https://javacn.site/image/1651323306848-34a76507-9603-4b9e-ad1f-8b7b9d4fd524.png) 然而，Java 内存模型会带来一个新的问题，那就是内存可见性问题，也就是当某个线程修改了主内存中共享变量的值之后，其他线程不能感知到此值被修改了，它会一直使用自己工作内存中的“旧值”，这样程序的执行结果就不符合我们的预期了，这就是内存可见性问题，我们用以下代码来演示一下这个问题：
+
+
+
+```java
+private static boolean flag = false;
+public static void main(String[] args) {
+    Thread t1 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            while (!flag) {
+
+            }
+            System.out.println("终止执行");
+        }
+    });
+    t1.start();
+    Thread t2 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println("设置 flag=true");
+            flag = true;
+        }
+    });
+    t2.start();
+}
+```
+
+以上代码我们预期的结果是，在线程 1 执行了 1s 之后，线程 2 将 flag 变量修改为 true，之后线程 1 终止执行，然而，因为线程 1 感知不到 flag 变量发生了修改，也就是内存可见性问题，所以会导致线程 1 会永远的执行下去，最终我们看到的结果是这样的： ![image.png](https://javacn.site/image/1651322607045-ed01b7ec-821e-4d1e-889b-c2673557f375.png) 如何解决以上问题呢？只需要给变量 flag 加上 volatile 修饰即可，具体的实现代码如下：
+
+
+
+```java
+private volatile static boolean flag = false;
+public static void main(String[] args) {
+    Thread t1 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            while (!flag) {
+
+            }
+            System.out.println("终止执行");
+        }
+    });
+    t1.start();
+    Thread t2 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println("设置 flag=true");
+            flag = true;
+        }
+    });
+    t2.start();
+}
+```
+
+以上程序的执行结果如下图所示：![image.png](https://javacn.site/image/1651322718252-6e6ad544-b048-4e14-9f98-0e982f02e343.png)
+
+## [#](#禁止指令重排序) 禁止指令重排序
+
+指令重排序是指编译器或 CPU 为了优化程序的执行性能，而对指令进行重新排序的一种手段。
+
+指令重排序的实现初衷是好的，但是在多线程执行中，如果执行了指令重排序可能会导致程序执行出错。指令重排序最典型的一个问题就发生在单例模式中，比如以下问题代码：
+
+
+
+```java
+public class Singleton {
+    private Singleton() {}
+    private static Singleton instance = null;
+    public static Singleton getInstance() {
+        if (instance == null) { // ①
+            synchronized (Singleton.class) {
+            	if (instance == null) {
+                	instance = new Singleton(); // ②
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+以上问题发生在代码 ② 这一行“instance = new Singleton();”，这行代码**看似只是一个创建对象的过程，然而它的实际执行却分为以下 3 步：**
+
+1. **创建内存空间。**
+2. **在内存空间中初始化对象 Singleton。**
+3. **将内存地址赋值给 instance 对象（执行了此步骤，instance 就不等于 null 了）。**
+
+**如果此变量不加 volatile，那么线程 1 在执行到上述代码的第 ② 处时就可能会执行指令重排序，将原本是 1、2、3 的执行顺序，重排为 1、3、2。但是特殊情况下，线程 1 在执行完第 3 步之后，如果来了线程 2 执行到上述代码的第 ① 处，判断 instance 对象已经不为 null，但此时线程 1 还未将对象实例化完，那么线程 2 将会得到一个被实例化“一半”的对象，从而导致程序执行出错，这就是为什么要给私有变量添加 volatile 的原因了。** 要使以上单例模式变为线程安全的程序，需要给 instance 变量添加 volatile 修饰，它的最终实现代码如下：
+
+
+
+```java
+public class Singleton {
+    private Singleton() {}
+    // 使用 volatile 禁止指令重排序
+    private static volatile Singleton instance = null; // 【主要是此行代码发生了变化】
+    public static Singleton getInstance() {
+        if (instance == null) { // ①
+            synchronized (Singleton.class) {
+            	if (instance == null) {
+                	instance = new Singleton(); // ②
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+## [#](#小结) 小结
+
+volatile 是 Java 并发编程的重要组成部分，它的主要作用有两个：保证内存的可见性和禁止指令重排序。volatile 常使用在一写多读的场景中，比如 CopyOnWriteArrayList 集合，它在操作的时候会把全部数据复制出来对写操作加锁，修改完之后再使用 setArray 方法把此数组赋值为更新后的值，使用 volatile 可以使读线程很快的告知到数组被修改，不会进行指令重排，操作完成后就可以对其他线程可见了。
+
+### 14.volatile底层是如何实现的？
+
+在 Java 中，volatile 是一种关键字，用于修饰变量。使用 volatile 关键字修饰的变量具有可见性和有序性，但不保证原子性。
+
+#### [#](#相关定义说明) 相关定义说明
+
+原子性（Atomicity）：即一个操作或者多个操作，要么全部执行，并且执行的过程不会被任何因素打断，要么都不执行。
+
+有序性（Ordering）：指指令在执行过程中的顺序，一个操作执行在另一个操作之前或者在其执行之后。即程序执行的顺序按照代码的先后顺序执行。
+
+可见性（Visibility）：指当多个线程访问同一个变量时，一个线程修改了这个变量的值，其他线程能够立即看得到修改的值。
+
+#### [#](#volatile-实现原理) volatile 实现原理
+
+volatile 关键字在底层的实现主要是通过内存屏障（memory barrier）来实现的。内存屏障是一种 CPU 指令，用于强制执行 CPU 的内部缓存与主内存之间的数据同步。
+
+在 Java 中，当线程读取一个 volatile 变量时，会从主内存中读取变量的最新值，并把它存储到线程的工作内存中。当线程写入一个 volatile 变量时，会把变量的值写入到线程的工作内存中，并强制将这个值刷新到主内存中。这样就保证了 volatile 变量的可见性和有序性。
+
+在 Java 5 之后，volatile 的实现还引入了“内存屏障插入”的机制，内存屏障插入是指在指令序列中插入内存屏障以保证变量的可见性和有序性。
+
+#### [#](#主内存和工作内存) 主内存和工作内存
+
+Java 内存模型规定，所有的变量（实例变量和静态变量）都必须存储在主内存中，每个线程也会有自己的工作内存，线程的工作内存保存了该线程用到的变量和主内存的副本拷贝，线程对变量的操作都在工作内存中进行。线程不能直接读写主内存中的变量，如下图所示： ![image.png](https://javacn.site/image/1651323306848-34a76507-9603-4b9e-ad1f-8b7b9d4fd524.png) 这样设计的目的主要是为了提升程序的并发性能以及多线程之间的可见性问题。
+
+主内存是 Java 虚拟机中的一块共享内存，所有线程都可以访问。而每个线程还有自己的工作内存，线程的工作内存中存储了主内存中的变量副本的拷贝。这样做的好处是，线程之间不需要同步所有变量的读写操作，只需要同步主内存中的变量即可，这样可以提高程序的执行效率。同时，由于每个线程都有自己的工作内存，因此线程之间的变量操作互相不影响，从而提高了程序的并发性能。
+
+#### [#](#内存屏障) 内存屏障
+
+内存屏障是一种硬件机制，用于控制 CPU 缓存和主内存之间的数据同步。在 Java 中，内存屏障通常有两种：读屏障和写屏障。
+
+在有内存屏障的地方，会禁止指令重排序，即屏障下面的代码不能跟屏障上面的代码交换执行顺序。在有内存屏障的地方，线程修改完共享变量以后会马上把该变量从本地内存写回到主内存，并且让其他线程本地内存中该变量副本失效（使用 MESI 协议）。
+
+MESI 协议是一种缓存一致性协议，它是支持写回（write-back）缓存的最常用协议。MESI 协议基于总线嗅探机制实现了事务串形化，也用状态机机制降低了总线带宽压力，做到了 CPU 缓存一致性。MESI 协议这 4 个字母代表 4 个状态，分别是：Modified（已修改）、Exclusive（独占）、Shared（共享）、Invalidated（已失效）。
+
+### 15.为什么单例一定要加volatile？
+
+单例模式的实现方法有很多种，如饿汉模式、懒汉模式、静态内部类和枚举等，当面试官问到“为什么单例模式一定要加 volatile？”时，那么他指的是为什么懒汉模式中的私有变量要加 volatile？
+
+> 懒汉模式指的是对象的创建是懒加载的方式，并不是在程序启动时就创建对象，而是第一次被真正使用时才创建对象。
+
+要解释为什么要加 volatile？我们先来看懒汉模式的具体实现代码：
+
+
+
+```java
+public class Singleton {
+    // 1.防止外部直接 new 对象破坏单例模式
+    private Singleton() {}
+    // 2.通过私有变量保存单例对象【添加了 volatile 修饰】
+    private static volatile Singleton instance = null;
+    // 3.提供公共获取单例对象的方法
+    public static Singleton getInstance() {
+        if (instance == null) { // 第 1 次效验
+            synchronized (Singleton.class) {
+            	if (instance == null) { // 第 2 次效验
+                	instance = new Singleton(); 
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+从上述代码可以看出，为了保证线程安全和高性能，代码中使用了两次 if 和 synchronized 来保证程序的执行。那既然已经有 synchronized 来保证线程安全了，为什么还要给变量加 volatile 呢？
+
+在解释这个问题之前，我们先要搞懂一个前置知识：volatile 有什么用呢？
+
+## [#](#_1-volatile-作用) 1.volatile 作用
+
+volatile 有两个主要的作用，第一，解决内存可见性问题，第二，防止指令重排序。
+
+#### [#](#_1-1-内存可见性问题) 1.1 内存可见性问题
+
+**所谓内存可见性问题，指的是多个线程同时操作一个变量，其中某个线程修改了变量的值之后，其他线程感知不到变量的修改，这就是内存可见性问题。****而使用 volatile 就可以解决内存可见性问题**，比如以下代码，当没有添加 volatile 时，它的实现如下：
+
+
+
+```java
+private static boolean flag = false;
+public static void main(String[] args) {
+    Thread t1 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            // 如果 flag 变量为 true 就终止执行
+            while (!flag) {
+
+            }
+            System.out.println("终止执行");
+        }
+    });
+    t1.start();
+    // 1s 之后将 flag 变量的值修改为 true
+    Thread t2 = new Thread(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            System.out.println("设置 flag 变量的值为 true！");
+            flag = true;
+        }
+    });
+    t2.start();
+}
+```
+
+以上程序的执行结果如下： ![image.png](https://javacn.site/image/1650458547207-82d75caf-c3a0-4934-a83e-af74bb269a1d.png) 然而，以上程序执行了 N 久之后，依然没有结束执行，这说明线程 2 在修改了 flag 变量之后，线程 1 根本没有感知到变量的修改。 那么接下来，我们尝试给 flag 加上 volatile，实现代码如下：
+
+
+
+```java
+public class volatileTest {
+    private static volatile boolean flag = false;
+    public static void main(String[] args) {
+        Thread t1 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                // 如果 flag 变量为 true 就终止执行
+                while (!flag) {
+
+                }
+                System.out.println("终止执行");
+            }
+        });
+        t1.start();
+        // 1s 之后将 flag 变量的值修改为 true
+        Thread t2 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                System.out.println("设置 flag 变量的值为 true！");
+                flag = true;
+            }
+        });
+        t2.start();
+    }
+}
+```
+
+以上程序的执行结果如下： ![image.png](https://javacn.site/image/1650458765573-e1fb8e93-21cb-4b17-9e55-a8021bb1aeb4.png) 从上述执行结果我们可以看出，使用 volatile 之后就可以解决程序中的内存可见性问题了。
+
+#### [#](#_1-2-防止指令重排序) 1.2 防止指令重排序
+
+指令重排序是指在程序执行过程中，编译器或 JVM 常常会对指令进行重新排序，已提高程序的执行性能。 指令重排序的设计初衷确实很好，在单线程中也能发挥很棒的作用，然而在多线程中，使用指令重排序就可能会导致线程安全问题了。
+
+> 所谓线程安全问题是指程序的执行结果，和我们的预期不相符。比如我们预期的正确结果是 0，但程序的执行结果却是 1，那么这就是线程安全问题。
+
+而使用 volatile 可以禁止指令重排序，从而保证程序在多线程运行时能够正确执行。
+
+#### [#](#_2-为什么要用-volatile) 2.为什么要用 volatile？
+
+回到主题，我们**在单例模式中使用 volatile，主要是使用 volatile 可以禁止指令重排序，从而保证程序的正常运行**。这里可能会有读者提出疑问，不是已经使用了 synchronized 来保证线程安全吗？那为什么还要再加 volatile 呢？看下面的代码：
+
+
+
+```java
+public class Singleton {
+    private Singleton() {}
+    // 使用 volatile 禁止指令重排序
+    private static volatile Singleton instance = null;
+    public static Singleton getInstance() {
+        if (instance == null) { // ①
+            synchronized (Singleton.class) {
+            	if (instance == null) {
+                	instance = new Singleton(); // ②
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+注意观察上述代码，我标记了第 ① 处和第 ② 处的两行代码。给私有变量加 volatile 主要是为了防止第 ② 处执行时，也就是“instance = new Singleton()”执行时的指令重排序的，这行代码**看似只是一个创建对象的过程，然而它的实际执行却分为以下 3 步：**
+
+1. **创建内存空间。**
+2. **在内存空间中初始化对象 Singleton。**
+3. **将内存地址赋值给 instance 对象（执行了此步骤，instance 就不等于 null 了）。**
+
+试想一下，**如果不加 volatile，那么线程 1 在执行到上述代码的第 ② 处时就可能会执行指令重排序，将原本是 1、2、3 的执行顺序，重排为 1、3、2。但是特殊情况下，线程 1 在执行完第 3 步之后，如果来了线程 2 执行到上述代码的第 ① 处，判断 instance 对象已经不为 null，但此时线程 1 还未将对象实例化完，那么线程 2 将会得到一个被实例化“一半”的对象，从而导致程序执行出错，这就是为什么要给私有变量添加 volatile 的原因了。**
+
+#### [#](#小结) 小结
+
+使用 volatile 可以解决内存可见性问题和防止指令重排序，我们在单例模式中使用 volatile 主要是使用 volatile 的后一个特性（防止指令重排序），从而避免多线程执行的情况下，因为指令重排序而导致某些线程得到一个未被完全实例化的对象，从而导致程序执行出错的情况。
+
+### 16.保证线程安全的手段有哪些？
+
+在 Java 中，多线程并发操作同一个共享变量时，就可能会发生线程安全问题。 在 Java 中保证线程安全的常用手段有以下三个：
+
+1. 使用锁机制：锁机制是一种用于控制多个线程对共享资源进行访问的机制。在 Java 中，锁机制主要有两种：synchronized 关键字和 Lock 接口。synchronized 关键字是 Java 中最基本的锁机制，它可以用来修饰方法或代码块，以实现对共享资源的互斥访问。而 Lock 接口是 Java5 中新增的一种锁机制，它提供了比 synchronized 更强大、更灵活的锁定机制，例如可重入锁、读写锁等；
+2. 使用线程安全的容器：如 ConcurrentHashMap、Hashtable、Vector。需要注意的是，线程安全的容器底层通常也是使用锁机制实现的；
+3. 使用本地变量：线程本地变量是一种特殊的变量，它只能被同一个线程访问。在 Java 中，线程本地变量可以通过 ThreadLocal 类来实现。每个 ThreadLocal 对象都可以存储一个线程本地变量，而且每个线程都有自己的一份线程本地变量副本，因此不同的线程之间互不干扰。
+
+### 17.synchronized 和 Lock有什么区别？
+
+synchronized 和 Lock 都是 Java 中用于实现线程同步的机制，它们都可以保证线程安全。
+
+#### [#](#synchronized-介绍与使用) synchronized 介绍与使用
+
+synchronized 可用来修饰普通方法、静态方法和代码块，当一个线程访问一个被 synchronized 修饰的方法或者代码块时，会自动获取该对象的锁，其他线程将会被阻塞，直到该线程执行完毕并释放锁。这样就保证了多个线程对共享资源的操作的互斥性，从而避免了数据的不一致性和线程安全问题。 synchronized 基本使用如下：
+
+
+
+```java
+public class SynchronizedDemo {
+    private int count = 0;
+    public synchronized void increment() {
+        count++;
+    }
+    public synchronized int getCount() {
+        return count;
+    }
+}
+```
+
+此时我们再使用多线程调用上面类的 increment 或 getCount 时，就不会出现线程安全问题了，如下代码所示：
+
+
+
+```java
+public class SynchronizedDemoTest {
+    public static void main(String[] args) {
+        SynchronizedDemo demo = new SynchronizedDemo();
+        Runnable r = () -> {
+            for (int i = 0; i < 1000; i++) {
+                demo.increment();
+            }
+        };
+
+        Thread t1 = new Thread(r);
+        Thread t2 = new Thread(r);
+
+        t1.start();
+        t2.start();
+
+        try {
+            t1.join();
+            t2.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        System.out.println("Count: " + demo.getCount());
+    }
+}
+```
+
+#### [#](#lock-介绍与使用) Lock 介绍与使用
+
+Lock 是一种线程同步的机制，它与 synchronized 相似，可以用于控制对共享资源的访问。相比于 synchronized，Lock 的特点在于更加灵活，支持更多的操作。 Lock 接口定义了以下方法：
+
+- lock()：获取锁，如果锁已被其他线程占用，则阻塞当前线程。
+- tryLock()：尝试获取锁，如果锁已被其他线程占用，则返回 false，否则返回 true。
+- tryLock(long timeout, TimeUnit unit)：尝试获取锁，在指定的时间范围内获取到锁则返回 true，否则返回 false。
+- unlock()：释放锁。
+
+相比于 synchronized，Lock 的优点在于：
+
+- 粒度更细：synchronized 关键字只能对整个方法或代码块进行同步，而 Lock 可以对单个变量或对象进行同步。
+- 支持公平锁：synchronized 不支持公平锁，而 Lock 可以通过构造函数指定锁是否是公平锁。
+- 支持多个条件变量：Lock 可以创建多个条件变量，即多个等待队列。
+
+Lock 的实现类有很多，比较常用的有 ReentrantLock 和 ReentrantReadWriteLock。 需要注意的是，使用 Lock 时需要手动获取和释放锁，否则会导致死锁等问题。因此，一般来说建议使用 try-finally 语句块来确保锁的正确释放。例如：
+
+
+
+```java
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+public class Counter {
+    private int count = 0;
+    private Lock lock = new ReentrantLock();
+
+    public void increment() {
+        // 加锁
+        lock.lock();
+        try {
+            count++;
+        } finally {
+            // 释放锁
+            lock.unlock();
+        }
+    }
+
+    public void decrement() {
+        // 加锁
+        lock.lock();
+        try {
+            count--;
+        } finally {
+            // 释放锁
+            lock.unlock();
+        }
+    }
+    public int getCount() {
+        return count;
+    }
+}
+```
+
+#### [#](#synchronized-vs-lock) synchronized VS Lock
+
+synchronized 和 Lock 主要的区别有以下几个方面：
+
+1. 锁的获取方式：synchronized 是隐式获取锁的，即在进入 synchronized 代码块或方法时自动获取锁，退出时自动释放锁；而 Lock 需要程序显式地获取锁和释放锁，即需要调用 lock() 方法获取锁，调用 unlock() 方法释放锁。
+2. 锁的性质：synchronized 是可重入的互斥锁，即同一个线程可以多次获得同一把锁，而且锁的释放也只能由获得锁的线程来释放；Lock 可以是可重入的互斥锁，也可以是非可重入的互斥锁，还可以是读写锁。
+3. 锁的粒度：synchronized 是以代码块和方法为单位进行加锁和解锁，而 Lock 可以精确地控制锁的范围，可以支持多个条件变量。
+4. 性能：在低并发的情况下，synchronized 的性能优于 Lock，因为 Lock 需要显式地获取和释放锁，而 synchronized 是在 JVM 层面实现的；在高并发的情况下，Lock 的性能可能优于 synchronized，因为 Lock 可以更好地支持高并发和读写分离的场景。
+
+总的来说，synchronized 的使用更加简单，但是在某些场景下会受到性能的限制；而 Lock 则更加灵活，可以更精确地控制锁的范围和条件变量，但是使用起来比较繁琐。需要根据具体的业务场景和性能需求来选择使用哪种锁机制。
+
+### 18.synchronized 底层是如何实现的？
+
+synchronized 是 Java 中最基本的锁机制，使用它可以实现对共享资源的互斥访问。当一个线程访问被 synchronized 修饰的方法或代码块时，它会自动获取锁，其他线程只能排队等待该线程释放锁。
+
+#### [#](#底层实现—监视器) 底层实现—监视器
+
+想要了解 synchronized 的底层实现，需要从 synchronized 生成的字节码说起，比如以下程序：
+
+
+
+```java
+public class App {
+    public static void main(String[] args) {
+        synchronized (App.class) {
+            System.out.println("Hello World!");
+        }
+    }
+}
+```
+
+它的字节码如下：
+
+![image.png](https://javacn.site/image/1681808250453-1a30cc01-dc7d-4a6d-aa32-972bfc42a88e.png)
+
+从上述结果可以看出，在 main 方法中多了一对 monitorenter 和 monitorexit 的指令，它们的含义是：
+
+- monitorenter：表示进入监视器；
+- monitorexit：表示退出监视器。
+
+由此可知 synchronized 的底层是通过 Monitor（监视器）实现的。
+
+#### [#](#监视器具体实现) 监视器具体实现
+
+在 HotSpot 虚拟机中，监视器 Monitor 底层是由 C++实现的，它的实现对象是 ObjectMonitor。ObjectMonitor 结构体的实现源码如下：
+
+
+
+```cpp
+ObjectMonitor::ObjectMonitor() {  
+  _header       = NULL;  
+  _count       = 0;  
+  _waiters      = 0,  
+  _recursions   = 0;       //线程的重入次数
+  _object       = NULL;  
+  _owner        = NULL;    //标识拥有该monitor的线程
+  _WaitSet      = NULL;    //等待线程组成的双向循环链表，_WaitSet是第一个节点
+  _WaitSetLock  = 0 ;  
+  _Responsible  = NULL ;  
+  _succ         = NULL ;  
+  _cxq          = NULL ;    //多线程竞争锁进入时的单向链表
+  FreeNext      = NULL ;  
+  _EntryList    = NULL ;    //_owner从该双向循环链表中唤醒线程结点，_EntryList是第一个节点
+  _SpinFreq     = 0 ;  
+  _SpinClock    = 0 ;  
+  OwnerIsThread = 0 ;  
+} 
+```
+
+在以上代码中有几个关键的属性：
+
+- _count：记录该线程获取锁的次数（也就是前前后后，这个线程一共获取此锁多少次）。
+- _recursions：锁的重入次数。
+- _owner：The Owner 拥有者，是持有该 ObjectMonitor（监视器）对象的线程；
+- _EntryList：EntryList 监控集合，存放的是处于阻塞状态的线程队列，在多线程下，竞争失败的线程会进入 EntryList 队列。
+- _WaitSet：WaitSet 待授权集合，存放的是处于 wait 状态的线程队列，当线程执行了 wait() 方法之后，会进入 WaitSet 队列。
+
+监视器执行的流程是这样的：
+
+1. 线程通过 CAS（对比并替换）尝试获取锁，如果获取成功，就将 _owner 字段设置为当前线程，说明当前线程已经持有锁，并将 _recursions 重入次数的属性 +1。如果获取失败则先通过自旋 CAS 尝试获取锁，如果还是失败则将当前线程放入到 EntryList 监控队列（阻塞）。
+2. 当拥有锁的线程执行了 wait 方法之后，线程释放锁，将 owner 变量恢复为 null 状态，同时将该线程放入 WaitSet 待授权队列中等待被唤醒。
+3. 当调用 notify 方法时，随机唤醒 WaitSet 队列中的某一个线程，当调用 notifyAll 时唤醒所有的 WaitSet 中的线程尝试获取锁。
+4. 线程执行完释放了锁之后，会唤醒 EntryList 中的所有线程尝试获取锁。
+
+以上就是监视器的执行流程，执行流程如下图所示： ![image.png](https://javacn.site/image/1643445271234-fcd0bfab-bbce-4883-91d7-39f8fe40303b.png)
+
+#### [#](#小结) 小结
+
+synchronized 是通过 Monitor 监视器实现的，而监视器又是通过 C++ 代码实现的，它的具体执行流程是：线程先通过自旋 CAS 的方式尝试获取锁，如果获取失败就进入 EntrySet（监控）集合，如果获取成功就拥有该锁。而拥有锁的线程当调用 wait() 方法时，会释放锁并进入 WaitSet（待授权）集合，直到其他线程调用 notify 或 notifyAll 方法时才会尝试再次获取锁。线程正常执行完成之后，就会通知 EntrySet 集合中的线程，让它们尝试获取锁。
+
+### 19.产生死锁的条件有哪些？
+
+死锁（Dead Lock）指的是两个或两个以上的运算单元（进程、线程或协程），互相持有对方所需的资源，导致它们都无法向前推进，从而导致永久阻塞的问题就是死锁。
+
+比如线程 1 拥有了锁 A 的情况下试图获取锁 B，而线程 2 又在拥有了锁 B 的情况下试图获取锁 A，这样双方就进入相互阻塞等待的情况，如下图所示：
+
+![img](https://javacn.site/image/1628849381323-8eaac55e-5fe7-4149-996f-c62bede2299e.png)
+
+死锁的代码实现如下：
+
+
+
+```java
+public class DeadlockDemo {
+    public static void main(String[] args) {
+        Object lock1 = new Object();
+        Object lock2 = new Object();
+
+        Thread thread1 = new Thread(() -> {
+            synchronized (lock1) {
+                System.out.println("Thread 1 acquired lock1");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                synchronized (lock2) {
+                    System.out.println("Thread 1 acquired lock2");
+                }
+            }
+        });
+
+        Thread thread2 = new Thread(() -> {
+            synchronized (lock2) {
+                System.out.println("Thread 2 acquired lock2");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                synchronized (lock1) {
+                    System.out.println("Thread 2 acquired lock1");
+                }
+            }
+        });
+
+        thread1.start();
+        thread2.start();
+    }
+}
+```
+
+在上面的示例中，我们创建了两个锁 lock1 和 lock2，并在两个线程中分别获取这两个锁，但是获取的顺序不同。当 thread1 获取 lock1 后，它会在持有锁 lock1 的情况下尝试获取 lock2，而当 thread2 获取 lock2 后，它会在持有锁 lock2 的情况下尝试获取 lock1。 如果这两个线程启动后，thread1 先获取 lock1 并且在获取 lock2 之前休眠，那么 thread2 就会获取 lock2，然后在尝试获取 lock1 时被阻塞。此时，thread1 就会在获取 lock2 时被阻塞。两个线程都在等待对方释放锁，从而形成了死锁。
+
+#### [#](#死锁-4-大条件) 死锁 4 大条件
+
+死锁的产生需要满足以下 4 个条件：
+
+1. **互斥条件**：指运算单元（进程、线程或协程）对所分配到的资源具有排它性，也就是说在一段时间内某个锁资源只能被一个运算单元所占用。
+2. **请求和保持条件**：指运算单元已经保持至少一个资源，但又提出了新的资源请求，而该资源已被其它运算单元占有，此时请求运算单元阻塞，但又对自己已获得的其它资源保持不放。
+3. **不可剥夺条件**：指运算单元已获得的资源，在未使用完之前，不能被剥夺。
+4. **环路等待条件**：指在发生死锁时，必然存在运算单元和资源的环形链，即运算单元正在等待另一个运算单元占用的资源，而对方又在等待自己占用的资源，从而造成环路等待的情况。
+
+只有以上 4 个条件同时满足，才会造成死锁。
+
+#### [#](#解决死锁) 解决死锁
+
+死锁的常用解决方案有以下两个：
+
+1. 按照顺序加锁：尝试让所有线程按照同一顺序获取锁，从而避免死锁。
+2. 设置获取锁的超时时间：尝试获取锁的线程在规定时间内没有获取到锁，就放弃获取锁，避免因为长时间等待锁而引起的死锁。
+
+#### [#](#死锁排查工具) 死锁排查工具
+
+有一些工具可以帮助排查死锁问题，常见的工具有以下几个：
+
+1. jstack：可以查看 Java 应用程序的线程状态和调用堆栈，可用于发现死锁线程的状态。
+2. jconsole 和 JVisualVM：这些是 Java 自带的监视工具，可以用于监视线程、内存、CPU 使用率等信息，从而帮助排查死锁问题。
+3. Thread Dump Analyzer（TDA）：是一个开源的线程转储分析器，可用于分析和诊断 Java 应用程序中的死锁问题。
+4. Eclipse TPTP：是一个开源的性能测试工具平台，其中包含了一个名为 Thread Profiler 的工具，可以用于跟踪线程运行时的信息，从而诊断死锁问题。
+
+### 20.什么是CAS？
+
+CAS（Compare and Swap）是一种轻量级的同步操作，也是乐观锁的一种实现，它用于实现多线程环境下的并发算法。CAS 操作包含三个操作数：内存位置（或者说是一个变量的引用）、预期的值和新值。如果内存位置的值和预期值相等，那么处理器会自动将该位置的值更新为新值，否则不进行任何操作。
+
+在多线程环境中，CAS 可以实现非阻塞算法，避免了使用锁所带来的上下文切换、调度延迟、死锁等问题，因此被广泛应用于并发编程中。
+
+#### [#](#cas-示例) CAS 示例
+
+在 Java 中，CAS 操作被封装在 Atomic 类中，例如 AtomicInteger 类就是利用了 CAS 操作来实现线程安全的自增操作。同时，Java 还提供了一些工具类来支持 CAS 操作，例如 Unsafe 类，它提供了一些原始的 CAS 操作方法，供 JVM 内部使用，比如以下是基于 Unsafe 类的 CAS 示例：
+
+
+
+```java
+import sun.misc.Unsafe;
+
+import java.lang.reflect.Field;
+import java.util.concurrent.TimeUnit;
+
+public class CASDemo {
+    private volatile int value = 0;
+    private static Unsafe unsafe;
+    private static long valueOffset;
+
+    static {
+        try {
+            // 通过反射获取rt.jar包中的Unsafe类，默认Unsafe类是不能使用的
+            Field field = Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            unsafe = (Unsafe) field.get(null);
+            valueOffset = unsafe.objectFieldOffset(CASDemo.class.getDeclaredField("value"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void addOne() {
+        int current;
+        do {
+            current = unsafe.getIntVolatile(this, valueOffset);
+        } while (!unsafe.compareAndSwapInt(this, valueOffset, current, current + 1));
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        final CASDemo casDemo = new CASDemo();
+        for (int i = 0; i < 10; i++) {
+            new Thread(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    casDemo.addOne();
+                }
+            }).start();
+        }
+        TimeUnit.SECONDS.sleep(5);
+        System.out.println(casDemo.value);
+    }
+}
+```
+
+以上程序的执行结果为：
+
+> 10000
+
+程序开启了 10 个线程，每个线程调用 1000 次，最终执行的结果是 10000，说明以上程序是线程安全的。
+
+#### [#](#cas-执行流程) CAS 执行流程
+
+CAS 执行的具体流程如下：
+
+1. 将需要修改的值从主内存中读入本地线程缓存（工作内存）；
+2. 执行 CAS 操作，将本地线程缓存中的值与主内存中的值进行比较；
+3. 如果本地线程缓存中的值与主内存中的值相等，则将需要修改的值在本地线程缓存中修改；
+4. 如果修改成功，将修改后的值写入主内存，并返回修改结果；如果失败，则返回当前主内存中的值；
+5. 在多线程并发执行的情况下，如果多个线程同时执行 CAS 操作，只有一个线程的 CAS 操作会成功，其他线程的 CAS 操作都会失败，这也是 CAS 的原子性保证。
+
+### 21.什么是ABA问题？如何解决？
+
+#### ABA 问题
+
+所谓的 ABA 问题是指在并发编程中，如果一个变量初次读取的时候是 A 值，它的值被改成了 B，然后又其他线程把 B 值改成了 A，而另一个早期线程在对比值时会误以为此值没有发生改变，但其实已经发生变化了，这就是 ABA 问题。
+
+比如：张三去银行取钱，余额有 200 元，张三取 100 元，但因为程序的问题，启动了两个线程，线程一和线程二进行比对扣款，线程一获取原本有 200 元，扣除 100 元，余额等于 100 元，此时李四给张三转账 100 元，于是启动了线程三抢先在线程二之前执行了转账操作，把 100 元又变成了 200 元，而此时线程二对比自己事先拿到的 200 元和此时经过改动的 200 元值一样，就进行了减法操作，把余额又变成了 100 元。这显然不是我们要的正确结果，我们想要的结果是余额减少了 100 元，又增加了 100 元，余额还是 200 元，而此时余额变成了 100 元，显然有悖常理，这就是著名的 ABA 的问题。
+
+执行流程如下：
+
+- 线程一：取款，获取原值 200 元，与 200 元比对成功，减去 100 元，修改结果为 100 元。
+- 线程二：取款，获取原值 200 元，阻塞等待修改。
+- 线程三：转账，获取原值 100 元，与 100 元比对成功，加上 100 元，修改结果为 200 元。
+- 线程二：取款，恢复执行，原值为 200 元，与 200 元对比成功，减去 100 元，修改结果为 100 元。
+
+最终的结果是 100 元。
+
+#### [#](#解决-aba) 解决 ABA
+
+解决 ABA 问题的一种方法是使用带版本号的 CAS，也称为双重 CAS（Double CAS）或者版本号 CAS。具体来说，每次进行 CAS 操作时，不仅需要比较要修改的内存地址的值与期望的值是否相等，还需要比较这个内存地址的版本号是否与期望的版本号相等。如果相等，才进行修改操作。这样，在修改后的值后面追加上一个版本号，即使变量的值从 A 变成了 B 再变成了 A，版本号也会发生变化，从而避免了误判。
+
+以下是一个使用 AtomicStampedReference 来解决 ABA 问题的示例代码：
+
+
+
+```java
+import java.util.concurrent.atomic.AtomicStampedReference;
+
+public class ABADemo {
+
+    private static AtomicStampedReference<Integer> atomicStampedRef = new AtomicStampedReference<>(1, 0);
+
+    public static void main(String[] args) throws InterruptedException {
+        System.out.println("初始值：" + atomicStampedRef.getReference() + "，版本号：" + atomicStampedRef.getStamp());
+
+        // 线程 1 先执行一次 CAS 操作，期望值为 1，新值为 2，版本号为 0
+        Thread thread1 = new Thread(() -> {
+            int stamp = atomicStampedRef.getStamp();
+            atomicStampedRef.compareAndSet(1, 2, stamp, stamp + 1);
+        });
+
+        // 线程 2 先 sleep 1 秒，让线程 1 先执行一次 CAS 操作，然后再执行一次 CAS 操作，期望值为 2，新值为 1，版本号为 1
+        Thread thread2 = new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            int stamp = atomicStampedRef.getStamp();
+            atomicStampedRef.compareAndSet(2, 1, stamp, stamp + 1);
+        });
+
+        thread1.start();
+        thread2.start();
+
+        thread1.join();
+        thread2.join();
+
+        System.out.println("最终值：" + atomicStampedRef.getReference() + "，版本号：" + atomicStampedRef.getStamp());
+    }
+}
+```
+
+以上程序的执行结果为：
+
+> 初始值：1，版本号：0
+>
+> 最终值：1，版本号：2
+
+从输出结果可以看出，即使变量的值从 1 变成了 2 再变成了 1，使用带版本号的 CAS 操作也能正确判断变量是否发生了变化。
+
+### 22.什么是AQS？
+
+AQS（AbstractQueuedSynchronizer）是一个用于实现各种同步器的抽象类，是 JUC（java.util.concurrent）并发包中的核心类之一，JUC 中的许多并发工具类和接口都是基于 AQS 实现的。它提供了一种基于队列的、高效的、可扩展的同步机制，是实现锁、信号量、倒计时器等同步器的基础。
+
+> 同步器：同步器指的是用于控制多线程访问共享资源的机制。同步器可以保证在同一时间只有一个线程可以访问共享资源，从而避免了多线程访问共享资源时可能出现的数据竞争和不一致性问题。Java 中的同步器包括 synchronized 关键字、ReentrantLock、Semaphore、CountDownLatch 等。
+
+#### [#](#核心思想) 核心思想
+
+AQS 的核心思想是利用一个双向队列来保存等待锁的线程，同时利用一个 state 变量来表示锁的状态。AQS 的同步器可以分为独占模式和共享模式两种。独占模式是指同一时刻只允许一个线程获取锁，常见的实现类有 ReentrantLock；共享模式是指同一时刻允许多个线程同时获取锁，常见的实现类有 Semaphore、CountDownLatch、CyclicBarrier 等。
+
+#### [#](#资源共享模式) 资源共享模式
+
+AQS 中资源共享模式分为两种：
+
+1. 独占模式：AQS 维护了一个同步队列，该队列中保存了所有等待获取锁的线程。当一个线程尝试获取锁时，如果锁已经被其他线程持有，则将该线程加入到同步队列的尾部，并挂起线程，等待锁被释放。当锁被释放时，从同步队列中取出一个线程，使其获取锁，同时将它从队列中移除，唤醒该线程继续执行。独占模式又分为公平锁和非公平锁： 
+   1. 公平锁：按照线程在队列中的排队顺序，先到者先拿到锁；
+   2. 非公平锁：当线程要获取锁时，无视队列顺序直接去抢锁，谁抢到就是谁的。
+2. 共享模式：AQS 维护了一个等待队列和一个共享计数器。共享计数器表示当前允许获取锁的线程数，当一个线程尝试获取锁时，如果当前允许获取锁的线程数已经达到了最大值，则将该线程加入到等待队列中，并挂起线程，等待其他线程释放锁或者共享计数器增加。当锁被释放时，会从等待队列中取出一个线程，使其获取锁，同时将它从队列中移除，唤醒该线程继续执行。
+
+AQS 提供了一些方法，允许我们在自定义同步器中使用 AQS 的同步机制。其中包括 acquire()、release()、tryAcquire()、tryRelease() 等方法，这些方法的具体实现会因同步器的不同而有所区别。
+
+#### [#](#小结) 小结
+
+AQS 是 Java 并发编程中非常重要的一个类，它提供了基础的同步机制，可以实现各种同步器，并为高级的并发工具类和接口提供支持。熟练掌握 AQS 的使用，对于编写高效、线程安全的并发程序是非常有帮助的，JUC（java.util.concurrent）中的许多并发工具类和接口都是基于 AQS 实现的。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
