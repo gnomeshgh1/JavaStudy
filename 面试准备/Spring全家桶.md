@@ -103,6 +103,205 @@ DI 的优点是可以减少对象之间的耦合，使代码更加灵活和可�
 
 因此，DI 是 Spring 框架中实现 IoC 的重要技术之一。它可以使代码更加灵活和可维护，从而提高开发效率和代码质量。
 
+### 6.什么是AOP？
+
+AOP（Aspect-Oriented Programming，面向切面编程）是一种软件开发的编程范式，用于将跨越多个模块的（横切）关注点从核心业务逻辑中分离出来，使得横切关注点的定义和应用能够更加集中和重用。
+
+在传统的面向对象编程中，程序的功能逻辑被分散在各个对象中，而横切关注点（如日志记录、事务管理、安全控制等）则分散在多个对象之间，导致代码重复、可维护性差，并且难以修改和扩展。AOP 的目标就是解决这些问题。
+
+AOP 通过引入横切关注点，将其与核心业务逻辑分离，并以模块化的方式进行管理。它通过切面（Aspect）来描述横切关注点，切面是对横切关注点的封装。切面定义了在何处、何时和如何应用横切关注点。在 AOP 中，切面可以横跨多个对象，独立于核心业务逻辑。
+
+#### [#](#aop-组成) AOP 组成
+
+AOP 的实现依赖于以下几个概念：
+
+- **切面（Aspect）**：切面是横切关注点的模块化单元，它将通知和切点组合在一起，描述了在何处、何时和如何应用横切关注点。
+- **切点（Pointcut）**：用于定义哪些连接点被切面关注，即切面要织入的具体位置。
+- **连接点（Join Point）**：在程序执行过程中的某个特定点，例如方法调用、异常抛出等。
+- **通知（Advice）**：切面在特定切点上执行的代码，包括在连接点之前、之后或周围执行的行为。
+- **织入（Weaving）**：将切面应用到目标对象中的过程，可以在编译时、加载时或运行时进行。
+
+#### [#](#优点分析) 优点分析
+
+AOP 的优点是可以将横切关注点从应用程序的核心业务逻辑中分离出来，以便更好地实现模块化和复用。通过使用 AOP，可以将通用的功能（如日志记录、性能统计、事务管理等）封装成切面，然后在需要的地方进行重用，从而提高代码的可维护性和可重用性。
+
+### 7.AOP实现技术有哪些？
+
+AOP（面向切面编程）是一种编程范式，它允许将横切关注点从应用程序的核心业务逻辑中分离出来，以便更好地实现模块化和复用。
+
+AOP 常见实现技术有以下两种：
+
+1. 静态代理：静态代理是一种在编译时就已经确定代理关系的代理方式。在静态代理中，代理类和被代理类都要实现同一个接口或继承同一个父类，代理类中包含了被代理类的实例，并在调用被代理类的方法前后执行相应的操作。静态代理的优点是实现简单，易于理解和掌握，但是它的缺点是需要为每个被代理类编写一个代理类，当被代理类的数量增多时，代码量会变得很大。
+2. 动态代理：动态代理是一种在运行时动态生成代理类的代理方式。在动态代理中，代理类不需要实现同一个接口或继承同一个父类，而是通过 Java 反射机制动态生成代理类，并在调用被代理类的方法前后执行相应的操作。动态代理的优点是可以为多个被代理类生成同一个代理类，从而减少了代码量，但是它的缺点是实现相对复杂，需要了解 Java 反射机制和动态生成字节码的技术。
+
+### 8.动态代理是如何实现的？
+
+动态代理是一种在运行时动态生成代理类的代理方式。动态代理的常用实现方法有以下两种。
+
+#### [#](#_1-jdk-动态代理) 1. JDK 动态代理
+
+JDK 动态代理是一种使用 Java 标准库中的 java.lang.reflect.Proxy 类来实现动态代理的技术。在 JDK 动态代理中，被代理类必须实现一个或多个接口，并通过 InvocationHandler 接口来实现代理类的具体逻辑。
+
+具体来说，当使用 JDK 动态代理时，需要定义一个实现 InvocationHandler 接口的类，并在该类中实现代理类的具体逻辑。然后，通过 Proxy.newProxyInstance() 方法来创建代理类的实例。该方法接受三个参数：类加载器、代理类要实现的接口列表和 InvocationHandler 对象，如下代码所示：
+
+
+
+```java
+import org.example.demo.service.AliPayService;
+import org.example.demo.service.PayService;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+
+//动态代理：使用JDK提供的api（InvocationHandler、Proxy实现），此种方式实现，要求被代理类必须实现接口
+public class PayServiceJDKInvocationHandler implements InvocationHandler {
+    
+    //目标对象即就是被代理对象
+    private Object target;
+    
+    public PayServiceJDKInvocationHandler( Object target) {
+        this.target = target;
+    }
+    
+    //proxy代理对象
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        //1.安全检查
+        System.out.println("安全检查");
+        //2.记录日志
+        System.out.println("记录日志");
+        //3.时间统计开始
+        System.out.println("记录开始时间");
+
+        //通过反射调用被代理类的方法
+        Object retVal = method.invoke(target, args);
+
+        //4.时间统计结束
+        System.out.println("记录结束时间");
+        return retVal;
+    }
+
+    public static void main(String[] args) {
+
+        PayService target=  new AliPayService();
+        //方法调用处理器
+        InvocationHandler handler = 
+            new PayServiceJDKInvocationHandler(target);
+        //创建一个代理类：通过被代理类、被代理实现的接口、方法调用处理器来创建
+        PayService proxy = (PayService) Proxy.newProxyInstance(
+                target.getClass().getClassLoader(),
+                new Class[]{PayService.class},
+                handler
+        );
+        proxy.pay();
+    }
+}
+```
+
+JDK 动态代理的优点是实现简单，易于理解和掌握，但是它的缺点是只能代理实现了接口的类，无法代理没有实现接口的类。
+
+#### [#](#_2-cglib-动态代理) 2. CGLIB 动态代理
+
+CGLIB 动态代理是一种使用 CGLIB 库来实现动态代理的技术。在 CGLIB 动态代理中，代理类不需要实现接口，而是通过继承被代理类来实现代理。 具体来说，当使用 CGLIB 动态代理时，需要定义一个继承被代理类的子类，并在该子类中实现代理类的具体逻辑。然后，通过 Enhancer.create() 方法来创建代理类的实例。该方法接受一个类作为参数，表示要代理的类，如下代码所示：
+
+
+
+```java
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.cglib.proxy.MethodProxy;
+import org.example.demo.service.AliPayService;
+import org.example.demo.service.PayService;
+
+import java.lang.reflect.Method;
+
+public class PayServiceCGLIBInterceptor implements MethodInterceptor {
+
+    //被代理对象
+    private Object target;
+    
+    public PayServiceCGLIBInterceptor(Object target){
+        this.target = target;
+    }
+    
+    @Override
+    public Object intercept(Object o, Method method, Object[] args, MethodProxy methodProxy) throws Throwable {
+        //1.安全检查
+        System.out.println("安全检查");
+        //2.记录日志
+        System.out.println("记录日志");
+        //3.时间统计开始
+        System.out.println("记录开始时间");
+
+        //通过cglib的代理方法调用
+        Object retVal = methodProxy.invoke(target, args);
+
+        //4.时间统计结束
+        System.out.println("记录结束时间");
+        return retVal;
+    }
+    
+    public static void main(String[] args) {
+        PayService target=  new AliPayService();
+        PayService proxy= (PayService) Enhancer.create(target.getClass(),new PayServiceCGLIBInterceptor(target));
+        proxy.pay();
+    }
+}
+```
+
+CGLIB 动态代理的优点是可以代理没有实现接口的类，但是它的缺点是实现相对复杂，需要了解 CGLIB 库的使用方法。
+
+#### [#](#小结) 小结
+
+综上所述，动态代理的实现方法主要有 JDK 动态代理和 CGLIB 动态代理。JDK 动态代理中，代理类必须实现一个或多个接口，而 CGLIB 动态代理中，代理类不需要实现接口，但代理类不能是 final 类型，因为它是通过定义一个被代理类的子类来实现动态代理的，因此开发者需要根据具体的需求选择合适的技术来实现动态代理。
+
+### 9.JDK动态代理和CGLIB有什么区别？
+
+JDK 动态代理和 CGLIB 动态代理都是常见的动态代理实现技术，但它们有以下区别：
+
+- JDK 动态代理基于接口，要求目标对象实现接口；CGLIB 动态代理基于类，可以代理没有实现接口的目标对象。
+- JDK 动态代理使用 java.lang.reflect.Proxy 和 java.lang.reflect.InvocationHandler 来生成代理对象；CGLIB 动态代理使用 CGLIB 库来生成代理对象。
+- JDK 动态代理生成的代理对象是目标对象的接口实现；CGLIB 动态代理生成的代理对象是目标对象的子类。
+- JDK 动态代理性能相对较高，生成代理对象速度较快；CGLIB 动态代理性能相对较低，生成代理对象速度较慢。
+- CGLIB 动态代理无法代理 final 类和 final 方法；JDK 动态代理可以代理任意类。
+
+> PS：在 Spring 框架中，即使用了 JDK 动态代理又使用 CGLIB，默认情况下使用的是 JDK 动态代理，但是如果目标对象没有实现接口，则会使用 CGLIB 动态代理。
+
+#### [#](#小结) 小结
+
+简单来说，JDK 动态代理要求被代理类实现接口，而 CGLIB 要求被代理类不能是 final 修饰的最终类，在 JDK 8 以上的版本中，因为 JDK 动态代理做了专门的优化，所以它的性能要比 CGLIB 高。
+
+### 10.Bean有几种作用域？
+
+在 Spring 中，Bean 的作用域指的是 Bean 实例的生命周期和可见范围。
+
+Spring 中的 Bean 作用域主要有以下几种：
+
+#### [#](#_1-singleton) 1.singleton
+
+singleton 是 Spring 中默认的 Bean 作用域，它表示在整个应用程序中只存在一个 Bean 实例。每次请求该 Bean 时，都会返回同一个实例。
+
+#### [#](#_2-prototype) 2.prototype
+
+prototype 表示每次请求该 Bean 时都会创建一个新的实例。每个实例都有自己的属性值和状态，因此它们之间是相互独立的。
+
+#### [#](#_3-request) 3.request
+
+request 表示在一次 HTTP 请求中只存在一个 Bean 实例。在同一个请求中，多次请求该 Bean 时都会返回同一个实例。不同的请求之间，该 Bean 的实例是相互独立的。
+
+#### [#](#_4-session) 4.session
+
+session 表示在一个 HTTP Session 中只存在一个 Bean 实例。在同一个 Session 中，多次请求该 Bean 时都会返回同一个实例。不同的 Session 之间，该 Bean 的实例是相互独立的。
+
+#### [#](#_5-application) 5.application
+
+application 表示在一个 ServletContext 中只存在一个 Bean 实例。该作用域只在 Spring ApplicationContext 上下文中有效。
+
+#### [#](#_6-websocket) 6.websocket
+
+websocket 表示在一个 WebSocket 中只存在一个 Bean 实例。该作用域只在 Spring ApplicationContext 上下文中有效。
+
 
 
 
