@@ -302,11 +302,431 @@ application 表示在一个 ServletContext 中只存在一个 Bean 实例。该�
 
 websocket 表示在一个 WebSocket 中只存在一个 Bean 实例。该作用域只在 Spring ApplicationContext 上下文中有效。
 
+### 11.单例Bean线程安全吗？
+
+无状态的单例 Bean 是线程安全的，而有状态的单例 Bean 是非线程安全的，所以总的来说单例 Bean 还是非线程安全的。
+
+#### [#](#什么是有状态和无状态) 什么是有状态和无状态？
+
+有状态的 Bean 是指 Bean 中包含了状态，比如成员变量，而无状态的 Bean 是指 Bean 中不包含状态，比如没有成员变量，或者成员变量都是 final 的。
+
+#### [#](#为什么非线程安全) 为什么非线程安全？
+
+Spring 默认的 Bean 是单例模式，意味着容器中只有一个 Bean 实例，所有的线程都会使用并操作这个唯一的 Bean 实例，那么多个线程同时调用修改这个单例 Bean，就会产生线程安全问题。 举个例子：
 
 
 
+```java
+@Component
+public class SingletonBean {
+    private int counter = 0;
+
+    public int getCounter() {
+        return counter++; 
+    }
+}
+```
+
+这是一个简单的单例 Bean，有一个计数器，每调用一次加 1，当多个线程同时调用这个 Bean 的 getCounter() 方法时，因为 counter++ 是非原子性操作（先查询再加等），所以最终的结果就会比实际的加等次数少，这就是线程安全问题。
+
+#### [#](#如何保证线程安全) 如何保证线程安全？
+
+Spring 中保证单例 Bean 线程安全的手段有以下几个：
+
+1. 变为原型 Bean：在 Bean 上添加 @Scope("prototype") 注解，将其变为多例 Bean。这样每次注入时返回一个新的实例，避免竞争。
+2. 加锁：在 Bean 中对需要同步的方法或代码块添加同步锁 @Synchronized 或使用 Java 中的线程同步工具 ReentrantLock 等。
+3. 使用线程安全的集合：如 Vector、Hashtable 代替 ArrayList、HashMap 等非线程安全集合。
+4. 变为无状态 Bean：不在 Bean 中保存状态，让 Bean 成为无状态 Bean。无状态的 Bean 没有共享变量，自然也无须考虑线程安全问题。
+5. 使用线程局部变量 ThreadLocal：在方法内部使用线程局部变量 ThreadLocal，因为 ThreadLocal 是线程独享的，所以也不存在线程安全问题。
 
 
 
+### 12.Bean有几种注入方法？
 
+**在 Spring 中实现依赖注入的常见方式有以下 3 种：**
+
+1. **属性注入（Field Injection）；**
+2. **Setter 注入（Setter Injection）；**
+3. **构造方法注入（Constructor Injection）。**
+
+它们的具体使用和优缺点分析如下。
+
+#### [#](#_1-属性注入) 1.属性注入
+
+**属性注入是我们最熟悉，也是日常开发中使用最多的一种注入方式**，它的实现代码如下：
+
+
+
+```java
+@RestController
+public class UserController {
+    // 属性对象
+    @Autowired
+    private UserService userService;
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+#### [#](#_1-1-优点分析) 1.1 优点分析
+
+**属性注入最大的优点就是实现简单、使用简单**，只需要给变量上添加一个注解（@Autowired），就可以在不 new 对象的情况下，直接获得注入的对象了（这就是 DI 的功能和魅力所在），所以它的优点就是使用简单。
+
+#### [#](#_1-2-缺点分析) 1.2 缺点分析
+
+然而，属性注入虽然使用简单，但也存在着很多问题，甚至编译器 Idea 都会提醒你“不建议使用此注入方式”，Idea 的提示信息如下：
+
+!![image.png](https://javacn.site/image/1661222936883-0936a19d-392a-4f73-8a6f-a47b345fbdae.png)
+
+属性注入的缺点主要包含以下 3 个：
+
+1. 功能性问题：无法注入一个不可变的对象（final 修饰的对象）；
+2. 通用性问题：只能适应于 IoC 容器；
+3. 设计原则问题：更容易违背单一设计原则。
+
+接下来我们一一来看。
+
+#### [#](#缺点1-功能性问题) 缺点1：功能性问题
+
+**使用属性注入无法注入一个不可变的对象（final 修饰的对象）**，如下图所示：
+
+![image.png](https://javacn.site/image/1661224383171-cf2a75f2-1069-4a65-838b-f4abbc488948.png)
+
+原因也很简单：**在 Java 中 final 对象（不可变）要么直接赋值，要么在构造方法中赋值，所以当使用属性注入 final 对象时，它不符合 Java 中 final 的使用规范，所以就不能注入成功了。**
+
+> PS：如果要注入一个不可变的对象，要怎么实现呢？使用下面的构造方法注入即可。
+
+#### [#](#缺点2-通用性问题) 缺点2：通用性问题
+
+**使用属性注入的方式只适用于 IoC 框架（容器）**，如果将属性注入的代码移植到其他非 IoC 的框架中，那么代码就无效了，所以属性注入的通用性不是很好。
+
+#### [#](#缺点3-设计原则问题) 缺点3：设计原则问题
+
+使用属性注入的方式，因为使用起来很简单，所以开发者很容易在一个类中同时注入多个对象，而这些对象的注入是否有必要？是否符合程序设计中的单一职责原则？就变成了一个问题。 但可以肯定的是，**注入实现越简单，那么滥用它的概率也越大，所以出现违背单一职责原则的概率也越大**。 注意：**这里强调的是违背设计原则（单一职责）的可能性，而不是一定会违背设计原则**，二者有着本质的区别。
+
+#### [#](#_2-setter-注入) 2.Setter 注入
+
+Setter 注入的实现代码如下：
+
+
+
+```java
+@RestController
+public class UserController {
+    // Setter 注入
+    private UserService userService;
+
+    @Autowired
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+#### [#](#优缺点分析) 优缺点分析
+
+从上面代码可以看出，Setter 注入比属性注入要麻烦很多。 **要说 Setter 注入有什么优点的话，那么首当其冲的就是它完全符合单一职责的设计原则，因为每一个 Setter 只针对一个对象**。 但它的缺点也很明显，它的缺点主要体现在以下 2 点：
+
+1. 不能注入不可变对象（final 修饰的对象）；
+2. 注入的对象可被修改。
+
+接下来我们一一来看。
+
+#### [#](#缺点1-不能注入不可变对象) 缺点1：不能注入不可变对象
+
+使用 Setter 注入依然不能注入不可变对象，比如以下注入会报错：
+
+![image.png](https://javacn.site/image/1661245141492-a84d361d-c7da-46d4-9c0d-2ebd0049193e.png)
+
+#### [#](#缺点2-注入对象可被修改) 缺点2：注入对象可被修改
+
+Setter 注入提供了 setXXX 的方法，意味着你可以在任何时候、在任何地方，通过调用 setXXX 的方法来改变注入对象，所以 **Setter 注入的问题是，被注入的对象可能随时被修改**。
+
+#### [#](#_3-构造方法注入) 3.构造方法注入
+
+**构造方法注入是 Spring 官方从 4.x 之后推荐的注入方式**，它的实现代码如下：
+
+
+
+```java
+@RestController
+public class UserController {
+    // 构造方法注入
+    private UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+当然，**如果当前的类中只有一个构造方法，那么 @Autowired 也可以省略**，所以以上代码还可以这样写：
+
+
+
+```java
+@RestController
+public class UserController {
+    // 构造方法注入
+    private UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+#### [#](#优点分析) 优点分析
+
+构造方法注入相比于前两种注入方法，它可以注入不可变对象，并且它只会执行一次，也不存在像 Setter 注入那样，被注入的对象随时被修改的情况，它的优点有以下 4 个：
+
+1. 可注入不可变对象；
+2. 注入对象不会被修改；
+3. 注入对象会被完全初始化；
+4. 通用性更好。
+
+接下来我们一一来看。
+
+#### [#](#优点1-注入不可变对象) 优点1：注入不可变对象
+
+使用构造方法注入可以注入不可变对象，如下代码所示：
+
+![image.png](https://javacn.site/image/1661245255409-60844dd2-2c82-422a-b5e7-c9ba4d8258cb.png)
+
+#### [#](#优点2-注入对象不会被修改) 优点2：注入对象不会被修改
+
+构造方法注入不会像 Setter 注入那样，**构造方法在对象创建时只会执行一次，因此它不存在注入对象被随时（调用）修改的情况。**
+
+#### [#](#优点3-完全初始化) 优点3：完全初始化
+
+因为依赖对象是在构造方法中执行的，而构造方法是在对象创建之初执行的，因此被注入的对象在使用之前，会被完全初始化，这也是构造方法注入的优点之一。
+
+#### [#](#优点4-通用性更好) 优点4：通用性更好
+
+构造方法和属性注入不同，构造方法注入可适用于任何环境，无论是 IoC 框架还是非 IoC 框架，构造方法注入的代码都是通用的，所以它的通用性更好。
+
+#### [#](#小结) 小结
+
+依赖注入的常见实现方式有 3 种：属性注入、Setter 注入和构造方法注入。其中属性注入的写法最简单，所以日常项目中使用的频率最高，但它的通用性不好；而 Spring 官方推荐的是构造方法注入，它可以注入不可变对象，其通用性也更好，如果是注入可变对象，那么可以考虑使用 Setter 注入。
+
+
+
+### 13.Autowired底层如何实现？
+
+@Autowired 是 Spring 框架中常用的注解之一，它可以自动装配 Bean，使得开发人员可以更加方便地使用 Spring 框架，但 @Autowired 底层是如何实现的呢？
+
+**Spring 中的 @Autowired 注解是通过依赖注入（DI）实现的**，依赖注入是一种设计模式，它将对象的创建和依赖关系的管理从应用程序代码中分离出来，使得应用程序更加灵活和可维护。
+
+具体来说，当 Spring 容器启动时，它会扫描应用程序中的所有 Bean，并将它们存储在一个 BeanFactory 中。当应用程序需要使用某个 Bean 时，Spring 容器会自动将该 Bean 注入到应用程序中。
+
+但再往底层说，DI 是通过 Java 反射机制实现的。具体来说，当 Spring 容器需要注入某个 Bean 时，它会使用 Java 反射机制来查找符合条件的 Bean，并将其注入到应用程序中。
+
+所以说，@Autowired 注解是通过 DI 的方式，底层通过 Java 的反射机制来实现的。
+
+
+
+### 14.@Autowired和@Resource有什么区别？
+
+在 Spring 中，@Autowired 和 @Resource 都是用于注入 Bean 对象的注解。它们的作用类似，但是有以下几点区别。
+
+#### [#](#_1-来源不同) 1.来源不同
+
+**@Autowired 和 @Resource 来自不同的“父类”，其中 @Autowired 是 Spring 定义的注解，而 @Resource 是 Java 定义的注解，它来自于 JSR-250（Java 250 规范提案）。**
+
+> 小知识：JSR 是 Java Specification Requests 的缩写，意思是“Java 规范提案”。任何人都可以提交 JSR 给 Java 官方，但只有最终确定的 JSR，才会以 JSR-XXX 的格式发布，如 JSR-250，而被发布的 JSR 就可以看作是 Java 语言的规范或标准。
+
+#### [#](#_2-依赖查找顺序不同) 2.依赖查找顺序不同
+
+依赖注入的功能，是通过先在 Spring IoC 容器中查找对象，再将对象注入引入到当前类中。而查找有分为两种实现：按名称（byName）查找或按类型（byType）查找，其中 @Autowired 和 @Resource 都是既使用了名称查找又使用了类型查找，但二者进行查找的顺序却截然相反。
+
+#### [#](#_2-1-autowired-查找顺序) 2.1 @Autowired 查找顺序
+
+**@Autowired 是先根据类型（byType）查找，如果存在多个 Bean 再根据名称（byName）进行查找**，它的具体查找流程如下：
+
+![image.png](https://javacn.site/image/1661336351795-8853fa15-58de-4654-9ce8-de1c337ded4a.png)
+
+关于以上流程，可以通过查看 Spring 源码中的 org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor#postProcessPropertyValues 实现分析得出，源码执行流程如下图所示：
+
+![image.png](https://javacn.site/image/1661342216350-632b984b-9d62-43cc-83f3-4c90cc6868d8.png)
+
+#### [#](#_2-2-resource-查找顺序) 2.2 @Resource 查找顺序
+
+**@Resource 是先根据名称查找，如果（根据名称）查找不到，再根据类型进行查找**，它的具体流程如下图所示：
+
+![image.png](https://javacn.site/image/1661336664586-fda70e38-4426-45f9-a3b4-21365fc4771c.png)
+
+关于以上流程可以在 Spring 源码的 org.springframework.context.annotation.CommonAnnotationBeanPostProcessor#postProcessPropertyValues 中分析得出。虽然 @Resource 是 JSR-250 定义的，但是由 Spring 提供了具体实现，它的源码实现如下：
+
+![image.png](https://javacn.site/image/1661342304670-11383d4d-b51f-4f4f-b2ee-0c588bef817d.png)
+
+#### [#](#_2-3-查找顺序小结) 2.3 查找顺序小结
+
+由上面的分析可以得出：
+
+- **@Autowired 先根据类型（byType）查找，如果存在多个（Bean）再根据名称（byName）进行查找；**
+- **@Resource 先根据名称（byName）查找，如果（根据名称）查找不到，再根据类型（byType）进行查找。**
+
+#### [#](#_3-支持的参数不同) 3.支持的参数不同
+
+@Autowired 和 @Resource 在使用时都可以设置参数，比如给 @Resource 注解设置 name 和 type 参数，实现代码如下：
+
+
+
+```java
+@Resource(name = "userinfo", type = UserInfo.class)
+private UserInfo user;
+```
+
+但**二者支持的参数以及参数的个数完全不同，其中 @Autowired 只支持设置一个 required 的参数，而 @Resource 支持 7 个参数**，支持的参数如下图所示：
+
+![image.png](https://javacn.site/image/1661340802624-50dd0f3b-0bc5-45e8-b919-c0744547a644.png)
+
+![image.png](https://javacn.site/image/1661340740782-0f671f38-37ae-4ada-9d39-6b4d19a2181a.png)
+
+#### [#](#_4-依赖注入的支持不同) 4.依赖注入的支持不同
+
+@Autowired 和 @Resource 支持依赖注入的用法不同，常见依赖注入有以下 3 种实现：
+
+1. 属性注入
+2. 构造方法注入
+3. Setter 注入
+
+这 3 种实现注入的实现代码如下。
+
+**a) 属性注入**
+
+
+
+```java
+@RestController
+public class UserController {
+    // 属性注入
+    @Autowired
+    private UserService userService;
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+**b) 构造方法注入**
+
+
+
+```java
+@RestController
+public class UserController {
+    // 构造方法注入
+    private UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+**c) Setter 注入**
+
+
+
+```java
+@RestController
+public class UserController {
+    // Setter 注入
+    private UserService userService;
+
+    @Autowired
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+
+    @RequestMapping("/add")
+    public UserInfo add(String username, String password) {
+        return userService.add(username, password);
+    }
+}
+```
+
+其中，**@Autowired 支持属性注入、构造方法注入和 Setter 注入，而 @Resource 只支持属性注入和 Setter 注入**，当使用 @Resource 实现构造方法注入时就会提示以下错误：
+
+![image.png](https://javacn.site/image/1661341346342-317ea714-5825-4dc9-96a0-f0a118158380.png)
+
+#### [#](#_5-编译器提示不同) 5.编译器提示不同
+
+**当使用 IDEA 专业版在编写依赖注入的代码时，如果注入的是 Mapper 对象，那么使用 @Autowired 编译器会提示报错信息**，报错内容如下图所示：
+
+![image.png](https://javacn.site/image/1661341520045-d7a16c66-55af-4052-9387-0d0ddee4e3d4.png)
+
+虽然 IDEA 会出现报错信息，但程序是可以正常执行的。 然后，我们再**将依赖注入的注解更改为 @Resource 就不会出现报错信息了**，具体实现如下：
+
+![image.png](https://javacn.site/image/1661341563376-2e74ab93-0779-4d65-9260-520119657419.png)
+
+#### [#](#小结) 小结
+
+@Autowired 和 @Resource 都是用来实现依赖注入的注解（在 Spring/Spring Boot 项目中），但二者却有着 5 点不同：
+
+1. 来源不同：@Autowired 来自 Spring 框架，而 @Resource 来自于（Java）JSR-250；
+2. 依赖查找的顺序不同：@Autowired 先根据类型再根据名称查询，而 @Resource 先根据名称再根据类型查询；
+3. 支持的参数不同：@Autowired 只支持设置 1 个参数，而 @Resource 支持设置 7 个参数；
+4. 依赖注入的用法支持不同：@Autowired 既支持构造方法注入，又支持属性注入和 Setter 注入，而 @Resource 只支持属性注入和 Setter 注入；
+5. 编译器 IDEA 的提示不同：当注入 Mapper 对象时，使用 @Autowired 注解编译器会提示错误，而使用 @Resource 注解则不会提示错误
+
+
+
+### 15.说一下Bean的生命周期？
+
+在 Spring 中，Bean 的生命周期指的是 Bean 实例从创建到销毁的整个过程。Spring 容器负责管理 Bean 的生命周期，包括实例化、属性赋值、初始化、销毁等过程。
+
+Bean 的生命周期可以分为以下几个阶段：
+
+#### [#](#_1-实例化) 1. 实例化
+
+在 Spring 容器启动时，会根据配置文件或注解等方式创建 Bean 的实例，**也就是说实例化就是为 Bean 对象分配内存空间**。根据 Bean 的作用域不同，实例化的方式也不同。例如，singleton 类型的 Bean 在容器启动时就会被实例化，而 prototype 类型的 Bean 则是在每次请求时才会被实例化。
+
+#### [#](#_2-属性赋值) 2. 属性赋值
+
+在 Bean 实例化后，Spring 容器会自动将配置文件或注解中指定的属性值注入到 Bean 中。属性注入可以通过构造函数注入、Setter 方法注入、注解注入等方式实现。
+
+#### [#](#_3-初始化) 3. 初始化
+
+在属性注入完成后，Spring 容器会调用 Bean 的初始化方法。Bean 的初始化方法可以通过实现 InitializingBean 接口、@PostConstruct 注解等方式实现。在初始化方法中，可以进行一些初始化操作，例如建立数据库连接、加载配置文件等。
+
+#### [#](#_4-使用) 4. 使用
+
+在 Bean 初始化完成后，Bean 就可以被应用程序使用了。在应用程序中，可以通过 Spring 容器获取 Bean 的实例，并调用 Bean 的方法。
+
+#### [#](#_5-销毁) 5. 销毁
+
+在应用程序关闭时，Spring 容器会自动销毁所有的 Bean 实例。Bean 的销毁方法可以通过实现 DisposableBean 接口、@PreDestroy 注解等方式实现。在销毁方法中，可以进行一些清理操作，例如释放资源、关闭数据库连接等。
+
+#### [#](#小结) 小结
+
+综上所述，Spring 中的 Bean 生命周期包括实例化、属性赋值、初始化、使用和销毁等阶段。开发者可以通过实现接口或注解等方式来管理 Bean 的生命周期。
 
