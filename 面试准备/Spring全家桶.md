@@ -730,3 +730,205 @@ Bean 的生命周期可以分为以下几个阶段：
 
 综上所述，Spring 中的 Bean 生命周期包括实例化、属性赋值、初始化、使用和销毁等阶段。开发者可以通过实现接口或注解等方式来管理 Bean 的生命周期。
 
+### 16.BeanFactory和FactoryBean有什么区别？
+
+BeanFactory 和 FactoryBean 都是 Spring 框架中两个核心的概念，虽然它们都与对象创建和管理有关，但它们在功能和使用方式上存在着一些重要的区别。
+
+#### [#](#beanfactory) BeanFactory
+
+BeanFactory 是 Spring 框架的基本容器，负责管理和创建应用程序中的对象。它是一个工厂模式的实现，可以根据配置信息创建和管理各种类型的 Java 对象。BeanFactory 的主要职责是实例化 Bean、处理 Bean 之间的依赖关系、注入属性以及在需要时销毁 Bean。
+
+BeanFactory 使用延迟初始化策略，即只有在请求获取 Bean 实例时才会进行实例化。这种方式可以减少资源消耗，特别是在应用程序启动时有大量的Bean需要创建时。BeanFactory 使用配置文件（如 XML）或注解来定义 Bean 和它们之间的关系。
+
+BeanFactory 简单实现代码如下：
+
+
+
+```java
+// 得到 BeanFactory 对象
+BeanFactory beanFactory = new XmlBeanFactory(new ClassPathResource("spring-config.xml"));
+// 使用 BeanFactory 得到 User 对象
+beanFactory.getBean("user");
+```
+
+#### [#](#factorybean) FactoryBean
+
+FactoryBean 是一个特殊的 Bean，它实现了 Spring 的 FactoryBean 接口。与普通的 Bean 不同，FactoryBean 负责创建其他 Bean 实例。它是一种更加灵活和可扩展的机制，可以通过编程的方式动态地创建和配置Bean。
+
+FactoryBean 接口定义了三个方法：getObject()、getObjectType() 和 isSingleton()。getObject() 方法返回由 FactoryBean 创建的 Bean 实例，getObjectType() 方法返回创建的Bean的类型，而 isSingleton() 方法用于指示创建的 Bean 是否是单例。
+
+FactoryBean 的实现类可以自定义创建和管理 Bean 的逻辑。例如，它可以根据条件选择性地创建不同的实例，或者在创建 Bean 之前进行一些初始化操作。FactoryBean 通常在 Spring 配置文件中配置，并由 BeanFactory 负责实例化和管理。
+
+FactoryBean 简单示例如下：
+
+
+
+```java
+import org.springframework.beans.factory.FactoryBean;
+
+public class MyBeanFactory implements FactoryBean<MyBean> {
+
+    @Override
+    public MyBean getObject() throws Exception {
+        // 在这里定义创建 Bean 的逻辑
+        MyBean myBean = new MyBean();
+        // 进行一些初始化操作
+        myBean.setName("Example Bean");
+        // 返回创建的 Bean 实例
+        return myBean;
+    }
+
+    @Override
+    public Class<?> getObjectType() {
+        // 返回创建的 Bean 的类型
+        return MyBean.class;
+    }
+
+    @Override
+    public boolean isSingleton() {
+        // 指示创建的 Bean 是否是单例
+        return true;
+    }
+}
+```
+
+在上面的示例中，我们创建了一个名为 MyBeanFactory 的类，它实现了 FactoryBean 接口。在 getObject() 方法中，我们定义了创建 MyBean 实例的逻辑，并在此处进行了一些初始化操作。getObjectType() 方法返回了我们要创建的 Bean 的类型，即 MyBean.class。最后，我们通过 isSingleton() 方法指示创建的 Bean 是单例还是多例。
+
+之后，我们需要在 Spring 配置文件中，我们可以将 MyBeanFactory 配置为一个 Bean，并使用它来创建我们需要的 Bean 实例。示例配置如下：
+
+
+
+```xml
+<bean id="myBeanFactory" class="com.example.MyBeanFactory"/>
+<bean id="myBean" factory-bean="myBeanFactory" factory-method="getObject"/>
+```
+
+在上述配置中，我们首先定义了一个名为 myBeanFactory 的 Bean，它是我们实现的 MyBeanFactory 类的实例。接下来，我们使用 factory-bean 属性指定 myBeanFactory 作为工厂 Bean，并使用 factory-method 属性指定 getObject 方法来创建我们需要的 Bean 实例，即 myBean 类。
+
+#### [#](#区别) 区别
+
+BeanFactory 是 Spring 的基本容器，用于创建和管理 Bean 实例，而 FactoryBean 是一个特殊的 Bean，用于创建其他 Bean 实例。
+
+下面是 BeanFactory 和 FactoryBean 之间的一些关键区别：
+
+1. **功能**：BeanFactory 是一个容器，负责管理和创建 Bean 实例，处理依赖关系和属性注入等操作。FactoryBean 是一个接口，定义了创建 Bean 的规范和逻辑，它负责创建其他 Bean 实例。
+2. **使用方式**：BeanFactory 使用配置文件或注解来定义 Bean 和它们之间的关系，它使用延迟初始化策略，即只有在需要时才创建 Bean 实例。FactoryBean 通常在 Spring 配置文件中配置，并由 BeanFactory 负责实例化和管理。
+3. **创建的对象**：BeanFactory 创建和管理普通的 Bean 实例，而 FactoryBean 创建其他 Bean 实例。
+4. **灵活性**：FactoryBean 具有更高的灵活性，因为它允许自定义的逻辑来创建和配置 Bean 实例。FactoryBean 的实现类可以根据特定的条件选择性地创建不同的 Bean 实例，或者在创建 Bean 之前进行一些初始化操作。这使得 FactoryBean 在某些情况下比 BeanFactory 更加强大和可扩展。
+5. **返回类型**：BeanFactory 返回的是 Bean 实例本身，而 FactoryBean 返回的是由 FactoryBean 创建的 Bean 实例。因此，当使用 FactoryBean 时，需要通过调用 getObject() 方法来获取创建的 Bean 实例。
+
+#### [#](#小结) 小结
+
+BeanFactory 和 FactoryBean 是 Spring 框架中的两个关键概念，用于创建和管理 Bean 实例。BeanFactory 是 Spring 的基本容器，负责创建和管理 Bean 实例的，而 FactoryBean 是一个特殊的 Bean，它实现了 FactoryBean 接口，负责创建其他 Bean 实例，并提供一些初始化 Bean 的设置。
+
+### 17.Spring中使用了哪些设计模式？
+
+Spring 是一个非常流行的 Java 开发框架，它使用了很多设计模式来实现其功能，以下是 Spring 中包含的一些常见的设计模式。
+
+#### [#](#_1-工厂模式) 1.工厂模式
+
+工厂模式是一种创建型设计模式，它提供了一种创建对象的方式，使得应用程序可以更加灵活和可维护。在 Spring 中，FactoryBean 就是一个工厂模式的实现，使用它的工厂模式就可以创建出来其他的 Bean 对象。
+
+#### [#](#_2-单例模式) 2.单例模式
+
+单例模式是一种创建型设计模式，它保证一个类只有一个实例，并提供了一个全局访问点。在 Spring 中，Bean 默认是单例的，这意味着每个 Bean 只会被创建一次，并且可以在整个应用程序中共享。
+
+#### [#](#_3-代理模式) 3.代理模式
+
+代理模式是一种结构型设计模式，它允许开发人员在不修改原有代码的情况下，向应用程序中添加新的功能。在 Spring AOP（面向切面编程）就是使用代理模式的实现，它允许开发人员在方法调用前后执行一些自定义的操作，比如日志记录、性能监控等。
+
+#### [#](#_4-观察者模式) 4.观察者模式
+
+观察者模式是一种行为型设计模式，它定义了一种一对多的依赖关系，使得当一个对象的状态发生改变时，所有依赖于它的对象都会得到通知并自动更新。Spring 事件驱动模型使用观察者模式，ApplicationEventPublisher 事件发布者将事件发布给 ApplicationEventMulticaster 事件广播器，该广播器将事件派发给 @EventListener 注解的事件监听者。
+
+#### [#](#_5-模板方法模式) 5.模板方法模式
+
+模板方法模式是一种行为型设计模式，它定义了一个算法的骨架，将一些步骤延迟到子类中实现。在 Spring 中，JdbcTemplate 就是一个模板方法模式的实现，它提供了一种简单的方式来执行 SQL 查询和更新操作。
+
+#### [#](#_6-适配器模式) 6.适配器模式
+
+适配器模式是一种结构型设计模式，它允许开发人员将一个类的接口转换成另一个类的接口，以满足客户端的需求。在 Spring 中，适配器模式常用于将不同类型的对象转换成统一的接口，比如将 Servlet API 转换成 Spring MVC 的控制器接口。
+
+#### [#](#_7-策略模式) 7.策略模式
+
+策略模式是一种行为型设计模式，它定义了一系列算法，并将每个算法封装起来，使得它们可以互相替换。Spring 中的 TaskExecutor，TaskExecutor 提供了很多实现，比如以下这些：
+
+- SyncTaskExecutor：直接在调用线程中执行任务,没有真正的异步；
+- SimpleAsyncTaskExecutor：使用单线程池异步执行任务；
+- ConcurrentTaskExecutor：使用线程池异步执行任务；
+- SimpleTransactionalTaskExecutor：支持事务的 SimpleAsyncTaskExecutor。 这样，我们可以根据自己的需求选择不同的实现策略，使用策略模式的好处有以下这些：
+
+1. 可以在不修改原代码的基础上选择不同的算法或策略；
+2. 可减少程序中的条件语句，根据环境改变选择合适的策略；
+3. 扩展性好，如果有新的策略出现，只需要创建一个新的策略类，无须修改原代码。
+
+### 18.Spring和SpringBoot有什么区别？
+
+Spring 和 Spring Boot 都是 Java 开发中非常流行的框架，它们都可以用于构建企业级应用程序。虽然它们都是 Spring 框架的一部分，但是它们之间还是有一些区别的。
+
+#### [#](#spring) Spring
+
+Spring 是一个轻量级的开源框架，它提供了一种简单的方式来构建企业级应用程序。Spring 框架的核心是 IoC（Inversion of Control）和 AOP（Aspect Oriented Programming）两个概念。
+
+IoC 是一种设计模式，它将对象的创建和依赖关系的管理从应用程序代码中分离出来，使得应用程序更加灵活和可维护。
+
+AOP 是一种编程范式，它允许开发人员在不修改原有代码的情况下，向应用程序中添加新的功能。
+
+Spring 框架提供了很多模块，包括核心容器、数据访问、Web、AOP、消息、测试等。开发人员可以根据自己的需求选择合适的模块来构建应用程序。
+
+#### [#](#spring-boot) Spring Boot
+
+Spring Boot 本质上是 Spring 框架的延伸和扩展，它的诞生是为了简化 Spring 框架初始搭建以及开发的过程，使用它可以不再依赖 Spring 应用程序中的 XML 配置，为更快、更高效的开发 Spring 提供更加有力的支持。 Spring Boot 也提供了很多特性，包括自动配置、嵌入式 Web 服务器、健康检查、度量指标、安全性等。开发人员可以通过使用 Spring Boot Starter 来快速集成常用的第三方库和框架，比如 Spring Data、Spring Security、MyBatis、Redis 等。
+
+#### [#](#小结) 小结
+
+Spring 和 Spring Boot 的区别在于它们的目标和用途不同。Spring 是一个轻量级的开源框架，它提供了一种简单的方式来构建企业级应用程序。Spring Boot 则是 Spring 框架的延伸和扩展，它提供了一种快速构建应用程序的方式。开发人员可以通过使用 Spring Boot Starter 来快速集成常用的第三方库和框架，使得开发人员可以快速构建出一个可运行的应用程序。
+
+### 19.SpringBoot有什么优点？
+
+Spring Boot 是一个基于 Spring 框架的快速开发框架，它有以下优点：
+
+1. **简化配置**： Spring Boot 采用约定大于配置的原则，提供了自动配置的特性，大部分情况下无需手动配置，可以快速启动和运行应用程序。同时，Spring Boot 提供了统一的配置模型，集成了大量常用的第三方库和框架，简化了配置过程。
+2. **内嵌服务器**： Spring Boot 集成了常用的内嵌式服务器，如 Tomcat、Jetty 和 Undertow 等。这意味着不再需要单独安装和配置外部服务器，可以直接运行 Spring Boot 应用程序，简化了部署和发布过程。
+3. **自动装配**： Spring Boot 提供了自动装配机制，根据应用程序的依赖关系和配置信息，智能地自动配置 Spring 的各种组件和功能，大大减少了开发人员的手动配置工作，提高了开发效率。
+4. **起步依赖**： Spring Boot 引入了起步依赖（Starter Dependencies）的概念，它是一种可用于快速集成相关技术栈的依赖项集合。起步依赖能够自动处理依赖冲突和版本兼容性，并提供了默认的配置和依赖管理，简化了构建和管理项目的过程。
+5. **自动化监控和管理**： Spring Boot 集成了 Actuator 模块，提供了对应用程序的自动化监控、管理和运维支持。通过 Actuator，可以获取应用程序的健康状况、性能指标、配置信息等，方便运维人员进行故障排查和性能优化。
+6. **丰富的生态系统**： Spring Boot 建立在 Spring Framework 的基础上，可以无缝集成 Spring 的各种功能和扩展，如 Spring Data、Spring Security、Spring Integration 等。同时，Spring Boot 还提供了大量的第三方库和插件，可以方便地集成其他技术栈，构建全栈式应用程序。
+7. **可扩展性和灵活性**： 尽管 Spring Boot 提供了很多自动化的功能和约定，但它也保持了良好的可扩展性和灵活性。开发人员可以根据自己的需求进行自定义配置和扩展，以满足特定的业务需求。
+
+综上所述，Spring Boot 是一个强大而又灵活的开发框架，具有简化配置、快速开发、自动化监控、微服务支持等诸多优点。它极大地提高了开发效率、降低了开发成本，并且在行业中得到了广泛的认可和应用。
+
+### 20.什么是SpringBoot的自动装配？
+
+Spring Boot 的自动装配（Auto-configuration）是 Spring Boot 框架的核心特性之一。通过自动装配可以自动配置和加载 Spring Boot 所需的各种组件和功能，从而大大的减少开发人员手动配置的工作。
+
+在传统的 Spring 应用程序中，我们需要手动配置各种组件，如数据源、Web 容器、事务管理器等。这些配置需要编写大量的 XML 配置文件或 Java 配置类，增加了开发的工作量和复杂性。而 Spring Boot 的自动装配通过约定大于配置的原则，根据项目的依赖和配置信息，自动进行配置，使得开发人员无需进行大量的手动配置。
+
+#### [#](#自动装配工作原理) 自动装配工作原理
+
+Spring Boot 在启动时，会检索所有的 Spring 模块，找到符合条件的配置并应用到应用上下文中。这个过程发生在 SpringApplication 这个类中。
+
+Spring Boot 自动装配主要依靠两部分：
+
+1. SpringFactoriesLoader 驱动：在启动过程中会加载 META-INF/spring.factories 配置文件，获取自动装配相关的配置类信息。
+2. 条件装配：Spring Boot 不会永远都自动装配，它会根据类路径下是否存在某个名称符合命名规则的自动装配类来决定是否进行自动装配。这就是条件装配，通过 @Conditional 条件注解完成。
+
+#### [#](#自动装配流程) 自动装配流程
+
+Spring Boot 自动装配执行流程如下：
+
+1. Spring Boot 启动时会创建一个 SpringApplication 实例，该实例存储了应用相关信息，它负责启动并运行应用。
+2. 实例化 SpringApplication 时，会自动装载 META-INF/spring.factories 中配置的自动装配类。
+3. SpringApplication 实例调用 run() 方法启动应用。
+4. 在 run() 方法中，实例会创建默认的应用上下文 Environment 以及 ApplicationContext。
+5. SpringApplication 会通过 ListableBeanFactory 加载应用上下文 ApplicationContext 中的所有 BeanDefinition。
+6. 在 BeanDefinition 加载过程中，SpringApplication 会检测是否存在基于 @Conditional 条件装配注解的自动装配类。
+7. 如果存在且 @Conditional 条件校验成功，则会装配这些自动装配类。
+8. 这些自动装配类通过 @EnableAutoConfiguration、@Configuration 等注解，装配默认的 Spring Bean。
+9. 装配完成后，Spring Boot 将启动应用，这里会启动嵌入的 Web 服务器，如 Tomcat 并发布 Web 应用。
+10. 发布完成，Spring Boot 应用启动成功。
+
+#### [#](#小结) 小结
+
+自动装配是 Spring Boot 框架中的一个重要特性，它可以帮助开发人员更加方便地使用 Spring Boot 框架，提高开发效率，保证应用程序的正确性和稳定性。
+
