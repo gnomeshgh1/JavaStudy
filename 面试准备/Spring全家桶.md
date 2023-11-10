@@ -932,3 +932,421 @@ Spring Boot 自动装配执行流程如下：
 
 自动装配是 Spring Boot 框架中的一个重要特性，它可以帮助开发人员更加方便地使用 Spring Boot 框架，提高开发效率，保证应用程序的正确性和稳定性。
 
+### 21.有几种获取Request对象的方法
+
+HttpServletRequest 简称 Request，它是一个 Servlet API 提供的对象，用于获取客户端发起的 HTTP 请求信息。例如：获取请求参数、获取请求头、获取 Session 会话信息、获取请求的 IP 地址等信息。
+
+那么问题来了，在 Spring Boot 中，获取 Request 对象的方法有哪些？
+
+常见的获取 Request 对象的方法有以下三种：
+
+1. 通过请求参数中获取 Request 对象；
+2. 通过 RequestContextHolder 获取 Request 对象；
+3. 通过自动注入获取 Request 对象。
+
+具体实现如下。
+
+#### [#](#_1-通过请求参数获取) 1.通过请求参数获取
+
+实现代码：
+
+
+
+```java
+@RequestMapping("/index")
+@ResponseBody
+public void index(HttpServletRequest request){
+　　// do something
+}
+```
+
+该方法实现的原理是 Controller 开始处理请求时，Spring 会将 Request 对象赋值到方法参数中，我们直接设置到参数中即可得到 Request 对象。
+
+#### [#](#_2-通过-requestcontextholder-获取) 2.通过 RequestContextHolder 获取
+
+在 Spring Boot 中，RequestContextHolder 是 Spring 框架提供的一个工具类，用于在多线程环境中存储和访问与当前线程相关的请求上下文信息。它主要用于将当前请求的信息存储在线程范围内，以便在不同的组件中共享和访问这些信息，特别是在没有直接传递参数的情况下。 RequestContextHolder 的主要作用有以下几个：
+
+1. **访问请求上下文信息**： 在 Web 应用中，每个请求都会触发一个新的线程来处理。RequestContextHolder 允许你在任何地方获取当前请求的上下文信息，比如 HttpServletRequest 对象、会话信息等。
+2. **跨层传递信息**： 在多层架构中，比如控制器、服务层、数据访问层，你可能需要在这些层之间传递一些与请求相关的信息，但不想在每个方法中显式传递。通过 RequestContextHolder，你可以在一处设置请求信息，在其他地方获取并使用。
+3. **线程安全的上下文共享**： RequestContextHolder 使用线程局部变量来存储请求上下文信息，确保在多线程环境下每个线程访问的上下文信息都是独立的，避免了线程安全问题。
+
+因此我们可以使用 RequestContextHolde 获取 Request 对象，实现代码如下：
+
+
+
+```java
+@RequestMapping("/index")
+@ResponseBody
+public void index(){
+	ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes)RequestContextHolder.getRequestAttributes();
+	HttpServletRequest request = servletRequestAttributes.getRequest();
+	// do something
+}
+```
+
+#### [#](#_3-通过自动注入获取) 3.通过自动注入获取
+
+HttpServletRequest 对象也可以通过自动注入，如属性注入的方式获取，如下代码所示：
+
+
+
+```java
+@Controller
+public class HomeController{
+    @Autowired
+    private HttpServletRequest request; // 自动注入 request 对象
+    // do something
+}
+```
+
+#### [#](#小结) 小结
+
+Request 对象是获取客户端 HTTP 请求的重要对象，也是 Spring Boot 的重要对象之一，获取此对象的常用方法有：通过请求参数获取、通过 RequestContextHolder 获取，以及通过注入获取。
+
+### 22.如何实现拦截器？
+
+在 Spring Boot 中拦截器的实现分为两步：
+
+1. 创建一个普通的拦截器，实现 HandlerInterceptor 接口，并重写接口中的相关方法；
+2. 将上一步创建的拦截器加入到 Spring Boot 的配置文件中，并配置拦截规则。
+
+具体实现如下。
+
+#### [#](#_1-实现自定义拦截器) 1.实现自定义拦截器
+
+
+
+```java
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.ModelAndView;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+@Component
+public class TestInterceptor implements HandlerInterceptor {
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        System.out.println("拦截器：执行 preHandle 方法。");
+        return true;
+    }
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        System.out.println("拦截器：执行 postHandle 方法。");
+    }
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        System.out.println("拦截器：执行 afterCompletion 方法。");
+    }
+}
+```
+
+其中：
+
+- boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handle)：在请求方法执行前被调用，也就是调用目标方法之前被调用。比如我们在操作数据之前先要验证用户的登录信息，就可以在此方法中实现，如果验证成功则返回 true，继续执行数据操作业务；否则就返回 false，后续操作数据的业务就不会被执行了。
+- void postHandle(HttpServletRequest request, HttpServletResponse response, Object handle, ModelAndView modelAndView)：调用请求方法之后执行，但它会在 DispatcherServlet 进行渲染视图之前被执行。
+- void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handle, Exception ex)：会在整个请求结束之后再执行，也就是在 DispatcherServlet 渲染了对应的视图之后再执行。
+
+#### [#](#_2-配置拦截规则) 2.配置拦截规则
+
+最后，我们再将上面的拦截器注入到项目配置文件中，并设置相应拦截规则，具体实现代码如下：
+
+
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class AppConfig implements WebMvcConfigurer {
+
+    // 注入拦截器
+    @Autowired
+    private TestInterceptor testInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(testInterceptor) // 添加拦截器
+                .addPathPatterns("/**"); // 拦截所有地址
+        		.excludePathPatterns("/login"); // 放行接口
+    }
+}
+```
+
+### 23.如何实现过滤器？
+
+过滤器可以使用 Servlet 3.0 提供的 @WebFilter 注解，配置过滤的 URL 规则，然后再实现 Filter 接口，重写接口中的 doFilter 方法，具体实现代码如下：
+
+
+
+```java
+import org.springframework.stereotype.Component;
+import javax.servlet.*;
+import javax.servlet.annotation.WebFilter;
+import java.io.IOException;
+
+@Component
+@WebFilter(urlPatterns = "/*")
+public class TestFilter implements Filter {
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+        System.out.println("过滤器：执行 init 方法。");
+    }
+    @Override
+    public void doFilter(ServletRequest servletRequest,
+                         ServletResponse servletResponse,
+                         FilterChain filterChain) throws IOException, ServletException {
+        System.out.println("过滤器：开始执行 doFilter 方法。");
+        // 请求放行
+        filterChain.doFilter(servletRequest, servletResponse);
+        System.out.println("过滤器：结束执行 doFilter 方法。");
+    }
+    @Override
+    public void destroy() {
+        System.out.println("过滤器：执行 destroy 方法。");
+    }
+}
+```
+
+其中：
+
+- void init(FilterConfig filterConfig)：容器启动（初始化 Filter）时会被调用，整个程序运行期只会被调用一次。用于实现 Filter 对象的初始化。
+- void doFilter(ServletRequest request, ServletResponse response,FilterChain chain)：具体的过滤功能实现代码，通过此方法对请求进行过滤处理，**其中 FilterChain 参数是用来调用下一个过滤器或执行下一个流程**。
+- void destroy()：用于 Filter 销毁前完成相关资源的回收工作。
+
+### 24.拦截器与过滤器有什么区别？
+
+拦截器和过滤器的区别主要体现在以下 5 点：
+
+1. **出身不同**：过滤器来自于 Servlet，而拦截器来自于 Spring 框架；
+2. **触发时机不同**：请求的执行顺序是：请求进入容器 > 进入过滤器 > 进入 Servlet > 进入拦截器 > 执行控制器（Controller），所以过滤器和拦截器的执行时机，是过滤器会先执行，然后才会执行拦截器，最后才会进入真正的要调用的方法；
+3. **底层实现不同**：过滤器是基于方法回调实现的，拦截器是基于动态代理（底层是反射）实现的；
+4. **支持的项目类型不同**：过滤器是 Servlet 规范中定义的，所以过滤器要依赖 Servlet 容器，它只能用在 Web 项目中；而拦截器是 Spring 中的一个组件，因此拦截器既可以用在 Web 项目中，同时还可以用在 Application 或 Swing 程序中；
+5. **使用的场景不同**：因为拦截器更接近业务系统，所以拦截器主要用来实现项目中的业务判断的，比如：登录判断、权限判断、日志记录等业务；而过滤器通常是用来实现通用功能过滤的，比如：敏感词过滤、字符集编码设置、响应数据压缩等功能。
+
+### 25.拦截器和动态代理有什么区别？
+
+在 Spring Boot 中，拦截器和动态代理都是用来实现功能增强的，所以在很多时候，有人会认为拦截器的底层是通过动态代理实现的，所以本文就来盘点一下他们两的区别，以及拦截器的底层实现。
+
+#### [#](#_1-拦截器) 1.拦截器
+
+拦截器（Interceptor）准确来说在 Spring MVC 中的一个很重要的组件，用于拦截 Controller 的请求。 它的主要作用有以下几个：
+
+1. **权限验证**：验证用户是否登录、是否有权限访问某个接口。
+2. **日志记录**：记录请求信息的日志，如请求参数，响应信息等。
+3. **性能监控**：监控系统的运行性能，如慢查询接口等。
+4. **通用行为**：插入一些通用的行为，比如开发环境忽略某些请求。
+
+典型的使用场景是身份认证、授权检查、请求日志记录等。
+
+#### [#](#_1-1-拦截器实现) 1.1 拦截器实现
+
+在 Spring Boot 中拦截器的实现分为两步：
+
+1. 创建一个普通的拦截器，实现 HandlerInterceptor 接口，并重写接口中的相关方法。
+2. 将上一步创建的拦截器加入到 Spring Boot 的配置文件中，并配置拦截规则。
+
+具体实现如下。
+
+#### [#](#_1-实现自定义拦截器) ① 实现自定义拦截器
+
+
+
+```java
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.ModelAndView;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+@Component
+public class TestInterceptor implements HandlerInterceptor {
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        System.out.println("拦截器：执行 preHandle 方法。");
+        return true;
+    }
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        System.out.println("拦截器：执行 postHandle 方法。");
+    }
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        System.out.println("拦截器：执行 afterCompletion 方法。");
+    }
+}
+```
+
+其中：
+
+- boolean preHandle(HttpServletRequest request， HttpServletResponse response， Object handle)：在请求方法执行前被调用，也就是调用目标方法之前被调用。比如我们在操作数据之前先要验证用户的登录信息，就可以在此方法中实现，如果验证成功则返回 true，继续执行数据操作业务；否则就返回 false，后续操作数据的业务就不会被执行了。
+- void postHandle(HttpServletRequest request， HttpServletResponse response， Object handle， ModelAndView modelAndView)：调用请求方法之后执行，但它会在 DispatcherServlet 进行渲染视图之前被执行。
+- void afterCompletion(HttpServletRequest request， HttpServletResponse response， Object handle， Exception ex)：会在整个请求结束之后再执行，也就是在 DispatcherServlet 渲染了对应的视图之后再执行。
+
+#### [#](#_2-配置拦截规则) ② 配置拦截规则
+
+然后，我们再将上面的拦截器注入到项目配置文件中，并设置相应拦截规则，具体实现代码如下：
+
+
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class AppConfig implements WebMvcConfigurer {
+
+    // 注入拦截器
+    @Autowired
+    private TestInterceptor testInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(testInterceptor) // 添加拦截器
+                .addPathPatterns("/**"); // 拦截所有地址
+        		.excludePathPatterns("/login"); // 放行接口
+    }
+}
+```
+
+这样我们的拦截器就实现完了。
+
+#### [#](#_1-2-拦截器实现原理) 1.2 拦截器实现原理
+
+Spring Boot 拦截器是基于 Java 的 Servlet 规范实现的，通过实现 HandlerInterceptor 接口来实现拦截器功能。
+
+在 Spring Boot 框架的执行流程中，拦截器被注册在 DispatcherServlet 的 doDispatch() 方法中，该方法是 Spring Boot 框架的核心方法，用于处理请求和响应。
+
+程序每次执行时都会调用 doDispatch() 方法时，并验证拦截器（链），之后再根据拦截器返回的结果，进行下一步的处理。如果返回的是 true，那么继续调用目标方法，反之则会直接返回验证失败给前端。
+
+doDispatch 源码实现如下：
+
+
+
+```java
+protected void doDispatch(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    HttpServletRequest processedRequest = request;
+    HandlerExecutionChain mappedHandler = null;
+    boolean multipartRequestParsed = false;
+    WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+
+    try {
+        try {
+            ModelAndView mv = null;
+            Object dispatchException = null;
+
+            try {
+                processedRequest = this.checkMultipart(request);
+                multipartRequestParsed = processedRequest != request;
+                mappedHandler = this.getHandler(processedRequest);
+                if (mappedHandler == null) {
+                    this.noHandlerFound(processedRequest, response);
+                    return;
+                }
+
+                HandlerAdapter ha = this.getHandlerAdapter(mappedHandler.getHandler());
+                String method = request.getMethod();
+                boolean isGet = HttpMethod.GET.matches(method);
+                if (isGet || HttpMethod.HEAD.matches(method)) {
+                    long lastModified = ha.getLastModified(request, mappedHandler.getHandler());
+                    if ((new ServletWebRequest(request, response)).checkNotModified(lastModified) && isGet) {
+                        return;
+                    }
+                }
+
+                // 调用预处理【重点】
+                if (!mappedHandler.applyPreHandle(processedRequest, response)) {
+                    return;
+                }
+
+                // 执行 Controller 中的业务
+                mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+                if (asyncManager.isConcurrentHandlingStarted()) {
+                    return;
+                }
+
+                this.applyDefaultViewName(processedRequest, mv);
+                mappedHandler.applyPostHandle(processedRequest, response, mv);
+            } catch (Exception var20) {
+                dispatchException = var20;
+            } catch (Throwable var21) {
+                dispatchException = new NestedServletException("Handler dispatch failed", var21);
+            }
+
+            this.processDispatchResult(processedRequest, response, mappedHandler, mv, (Exception)dispatchException);
+        } catch (Exception var22) {
+            this.triggerAfterCompletion(processedRequest, response, mappedHandler, var22);
+        } catch (Throwable var23) {
+            this.triggerAfterCompletion(processedRequest, response, mappedHandler, new NestedServletException("Handler processing failed", var23));
+        }
+
+    } finally {
+        if (asyncManager.isConcurrentHandlingStarted()) {
+            if (mappedHandler != null) {
+                mappedHandler.applyAfterConcurrentHandlingStarted(processedRequest, response);
+            }
+        } else if (multipartRequestParsed) {
+            this.cleanupMultipart(processedRequest);
+        }
+
+    }
+}
+```
+
+从上述源码可以看出在开始执行 Controller 之前，会先调用 预处理方法 applyPreHandle，而 applyPreHandle 方法的实现源码如下：
+
+
+
+```java
+boolean applyPreHandle(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    for(int i = 0; i < this.interceptorList.size(); this.interceptorIndex = i++) {
+        // 获取项目中使用的拦截器 HandlerInterceptor
+        HandlerInterceptor interceptor = (HandlerInterceptor)this.interceptorList.get(i);
+        if (!interceptor.preHandle(request, response, this.handler)) {
+            this.triggerAfterCompletion(request, response, (Exception)null);
+            return false;
+        }
+    }
+    return true;
+}
+```
+
+从上述源码可以看出，在 applyPreHandle 中会获取所有的拦截器 HandlerInterceptor 并执行拦截器中的 preHandle 方法，这样就会咱们前面定义的拦截器对应上了，如下图所示：
+
+![img](https://javacn.site/image/1641107121837-84827043-5342-488a-97ce-d7781f1cfbfc.png)
+
+此时用户登录权限的验证方法就会执行，这就是拦截器的执行过程。 因此，可以得出结论，拦截器的实现主要是依赖 Servlet 或 Spring 执行流程来进行拦截和功能增强的。
+
+#### [#](#_2-动态代理) 2.动态代理
+
+动态代理是一种设计模式，它是指在运行时提供代理对象，来扩展目标对象的功能。 在 Spring 中的，动态代理的实现手段有以下两种:
+
+1. **JDK 动态代理**：通过反射机制生成代理对象，目标对象必须实现接口。
+2. **CGLIB 动态代理**：通过生成目标类的子类来实现代理，不要求目标对象实现接口。
+
+动态代理的主要作用包括：
+
+1. **扩展目标对象的功能**：如添加日志、验证参数等。
+2. **控制目标对象的访问**：如进行权限控制。
+3. **延迟加载目标对象**：在需要时才实例化目标对象。
+4. **远程代理**：将请求转发到远程的目标对象上。
+
+> JDK 动态代理和 CGLIB 的区别详见：[www.javacn.site/interview/spring/jdk_cglib.htmlopen in new window](https://www.javacn.site/interview/spring/jdk_cglib.html)
+
+#### [#](#_3-拦截器-vs-动态代理) 3.拦截器 VS 动态代理
+
+因此，我们可以得出结论，拦截器和动态代理虽然都是用来实现功能增强的，但二者完全不同，他们的主要区别体现在以下几点：
+
+1. **使用范围不同**：拦截器通常用于 Spring MVC 中，主要用于拦截 Controller 请求。动态代理可以使用在 Bean 中，主要用于提供 bean 的代理对象，实现对 bean 方法的拦截。
+2. **实现原理不同**：拦截器是通过 HandlerInterceptor 接口来实现的，主要是通过 afterCompletion、postHandle、preHandle 这三个方法在请求前后进行拦截处理。动态代理主要有 JDK 动态代理和 CGLIB 动态代理，JDK 通过反射生成代理类；CGLIB 通过生成被代理类的子类来实现代理。
+3. **加入时机不同**：拦截器是在运行阶段动态加入的；动态代理是在编译期或运行期生成的代理类。
+4. **使用难易程度不同**：拦截器相对简单，通过实现接口即可使用。动态代理稍微复杂，需要了解动态代理的实现原理，然后通过相应的 api 实现。
+
+### [#](#小结) 小结
+
+在 Spring Boot 中，拦截器和动态代理都是用来实现功能增强的，但二者没有任何关联关系，它的区别主要体现在使用范围、实现原理、加入时机和使用的难易程度都是不同的。
+
