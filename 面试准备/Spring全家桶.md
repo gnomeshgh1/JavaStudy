@@ -1350,3 +1350,706 @@ boolean applyPreHandle(HttpServletRequest request, HttpServletResponse response)
 
 在 Spring Boot 中，拦截器和动态代理都是用来实现功能增强的，但二者没有任何关联关系，它的区别主要体现在使用范围、实现原理、加入时机和使用的难易程度都是不同的。
 
+### 26.SpringBoot事务失效的场景有哪些？
+
+一个程序中不可能没有事务，而 Spring 中，事务的实现方式分为两种：编程式事务和声明式事务，又因为编程式事务实现相对麻烦，而声明式事务实现极其简单，所以在日常项目中，我们都会使用声明式事务 @Transactional 来实现事务。
+
+@Transactional 使用极其简单，只需要在类上或方法上添加 @Transactional 关键字，就可以实现事务的自动开启、提交或回滚了，它的基础用法如下：
+
+
+
+```java
+@Transactional 
+@RequestMapping("/add")
+public int add(UserInfo userInfo) {
+    int result = userService.add(userInfo);
+    return result;
+}
+```
+
+#### [#](#transactional-执行流程) @Transactional 执行流程
+
+**@Transactional 会在方法执行前，会自动开启事务；在方法成功执行完，会自动提交事务；如果方法在执行期间，出现了异常，那么它会自动回滚事务。** 然而，就是看起来极其简单的 @Transactional，却隐藏着一些“坑”，这些坑就是我们今天要讲的主题：导致 @Transactional 事务失效的常见场景有哪些？
+
+在开始之前，我们先要明确一个定义，什么叫做“失效”？
+
+本文中的“失效”指的是“**失去（它的）功效**”，也就是当 @Transactional 不符合我们预期的结果时，我们就可以说 @Transactional 失效了。
+
+那 @Transactional 失效的场景有哪些呢？接下来我们一一来看。
+
+#### [#](#_1-非public修饰的方法) 1.非public修饰的方法
+
+**当 @Transactional 修饰的方法为非 public 时，事务就失效了**，比如以下代码当遇到异常之后，不能自动实现回滚：
+
+
+
+```java
+@Transactional 
+@RequestMapping("/save")
+int save(UserInfo userInfo) {
+    // 非空效验
+    if (userInfo == null ||
+        !StringUtils.hasLength(userInfo.getUsername()) ||
+        !StringUtils.hasLength(userInfo.getPassword()))
+        return 0;
+    // 执行添加操作
+    int result = userService.save(userInfo);
+    System.out.println("add 受影响的行数：" + result);
+    int num = 10 / 0; // 此处设置一个异常
+    return result;
+}
+```
+
+以上程序的运行结果如下：
+
+![image.png](https://javacn.site/image/1659838789200-a6fcbfa0-fd27-4e90-9790-4f45af83f677.png)
+
+**当程序出现运行时异常时，我们预期的结果是事务应该实现自动回滚，也就是添加用户失败，然而当我们查询数据库时，却发现事务并未执行回滚操作**，数据库的数据如下图所示：
+
+![image.png](https://javacn.site/image/1659838855241-6b37e58b-27f1-4121-b4c1-a24413a60019.png)
+
+#### [#](#_2-timeout超时) 2.timeout超时
+
+**当在 @Transactional 上，设置了一个较小的超时时间时，如果方法本身的执行时间超过了设置的 timeout 超时时间，那么就会导致本来应该正常插入数据的方法执行失败**，示例代码如下：
+
+
+
+```java
+@Transactional(timeout = 3) // 超时时间为 3s
+@RequestMapping("/save")
+int save(UserInfo userInfo) throws InterruptedException {
+    // 非空效验
+    if (userInfo == null ||
+        !StringUtils.hasLength(userInfo.getUsername()) ||
+        !StringUtils.hasLength(userInfo.getPassword()))
+        return 0;
+    int result = userService.save(userInfo);
+    return result;
+}
+```
+
+UserService 的 save 方法实现如下：
+
+
+
+```java
+public int save(UserInfo userInfo) throws InterruptedException {
+    // 休眠 5s
+    TimeUnit.SECONDS.sleep(5);
+    int result = userMapper.add(userInfo);
+    return result;
+}
+```
+
+以上程序的运行结果如下：
+
+![image.png](https://javacn.site/image/1659840561743-8f39c13b-8303-4a5a-9e83-d9bb32d9bee3.png)
+
+数据库没有正确的插入数据，如下图所示：
+
+![image.png](https://javacn.site/image/1659840584761-797ff569-a5bd-4450-9256-a71879159471.png)
+
+#### [#](#_3-代码中有try-catch) 3.代码中有try/catch
+
+在前面 @Transactional 的执行流程中，我们提到：当方法中出现了异常之后，事务会自动回滚。然而，如果在程序中加了 try/catch 之后，@Transactional 就不会自动回滚事务了，示例代码如下：
+
+
+
+```java
+@Transactional
+@RequestMapping("/save")
+public int save(UserInfo userInfo) throws InterruptedException {
+    // 非空效验
+    if (userInfo == null ||
+        !StringUtils.hasLength(userInfo.getUsername()) ||
+        !StringUtils.hasLength(userInfo.getPassword()))
+        return 0;
+    int result = userService.save(userInfo);
+    try {
+        int num = 10 / 0; // 此处设置一个异常
+    } catch (Exception e) {
+    }
+    return result;
+}
+```
+
+以上程序的运行结果如下：
+
+![image.png](https://javacn.site/image/1659841577406-5795a42d-f572-4f57-8d1e-5d8a64937518.png)
+
+此时，查询数据库我们发现，**程序并没有执行回滚操作**，数据库中被成功的添加了一条数据，如下图所示：
+
+![image.png](https://javacn.site/image/1659841602475-7d02b319-f15b-436b-8753-fc9cd51a83b8.png)
+
+#### [#](#_4-调用类内部-transactional方法) 4.调用类内部@Transactional方法
+
+当调用类内部的 @Transactional 修饰的方法时，事务是不会生效的，示例代码如下：
+
+
+
+```java
+@RequestMapping("/save")
+public int saveMappping(UserInfo userInfo) {
+    return save(userInfo);
+}
+@Transactional
+public int save(UserInfo userInfo) {
+    // 非空效验
+    if (userInfo == null ||
+        !StringUtils.hasLength(userInfo.getUsername()) ||
+        !StringUtils.hasLength(userInfo.getPassword()))
+        return 0;
+    int result = userService.save(userInfo);
+    int num = 10 / 0; // 此处设置一个异常
+    return result;
+}
+```
+
+以上代码我们在添加方法 save 中添加了 @Transactional 声明式事务，并且添加了异常代码，**我们预期的结果是程序出现异常，事务进行自动回滚**，以上程序的执行结果如下：
+
+![image.png](https://javacn.site/image/1659841900987-b429323b-c5f0-417e-aab3-53aa5eb537ab.png)
+
+然而，当我们查询数据库时发现，程序执行并不符合我们的预期，添加的数据并没有进行自动回滚操作，如下图所示：
+
+![image.png](https://javacn.site/image/1659842162697-76e27ab1-9f1d-4e44-bd69-bb4d521105f1.png)
+
+#### [#](#_5-数据库不支持事务) 5.数据库不支持事务
+
+我们程序中的 @Transactional 只是给调用的数据库发送了：开始事务、提交事务、回滚事务的指令，但是如果数据库本身不支持事务，比如 MySQL 中设置了使用 MyISAM 引擎，那么它本身是不支持事务的，这种情况下，即使在程序中添加了 @Transactional 注解，那么依然不会有事务的行为，这就是巧妇也难为无米之炊吧。
+
+#### [#](#小结) 小结
+
+当声明式事务 @Transactional 遇到以下场景时，事务会失效：
+
+1. 非 public 修饰的方法；
+2. timeout 设置过小；
+3. 代码中使用 try/catch 处理异常；
+4. 调用类内部 @Transactional 方法；
+5. 数据库不支持事务。
+
+
+
+### 27.什么是Spring事务传播机制？
+
+Spring 事务传播机制是指在多个事务方法相互调用的情况下，如何管理这些事务的提交和回滚。
+
+Spring 提供了七种事务传播行为，分别是：
+
+1. REQUIRED（默认传播行为）：如果当前存在事务，则加入该事务；如果当前没有事务，则创建一个新的事务。
+2. SUPPORTS：如果当前存在事务，则加入该事务；如果当前没有事务，则以非事务方式执行。
+3. MANDATORY：如果当前存在事务，则加入该事务；如果当前没有事务，则抛出异常。
+4. REQUIRESNEW：创建一个新的事务，如果当前存在事务，则挂起该事务。
+5. NOTSUPPORTED：以非事务方式执行操作，如果当前存在事务，则挂起该事务。
+6. NEVER：以非事务方式执行操作，如果当前存在事务，则抛出异常。
+7. NESTED：如果当前存在事务，则在嵌套事务中执行；如果当前没有事务，则创建一个新的事务。
+
+#### [#](#小结) 小结
+
+Spring 提供了七种事务传播行为，可分为以下两类：
+
+1. 支持当前事务： 
+   1. REQUIRED 是最常用的传播行为，它表示当前方法必须在一个事务内执行，如果当前没有事务，则创建一个新的事务。
+   2. SUPPORTS 表示当前方法支持事务，但不强制要求，如果当前没有事务，则以非事务方式执行。
+   3. MANDATORY 表示当前方法必须在一个事务内执行，如果当前没有事务，则抛出异常。
+   4. NESTED 表示当前方法必须在一个嵌套事务内执行，如果当前没有事务，则创建一个新的事务。
+2. 不支持当前事务： 
+   1. REQUIRESNEW 表示当前方法必须创建一个新的事务，如果当前存在事务，则挂起该事务。
+   2. NOTSUPPORTED 表示当前方法以非事务方式执行，如果当前存在事务，则挂起该事务。NEVER 表示当前方法以非事务方式执行，如果当前存在事务，则抛出异常。
+
+### 28.加入事务和嵌入事务有什么区别？
+
+在 Spring 事务管理中，加入事务（Propagation.REQUIRED）和嵌套事务（Propagation.NESTED）是两种不同的事务传播行为。
+
+1. Propagation.REQUIRED：表示如果当前存在事务，则在当前事务中执行；如果当前没有事务，则创建一个新的事务并在其中执行。即，方法被调用时会尝试加入当前的事务，如果不存在事务，则创建一个新的事务。如果外部事务回滚，那么内部事务也会被回滚。
+2. Propagation.NESTED：表示如果当前存在事务，则在嵌套事务中执行；如果当前没有事务，则创建一个新的事务并在其中执行。嵌套事务是独立于外部事务的子事务，它具有自己的保存点，并且可以独立于外部事务进行回滚。如果嵌套事务发生异常并回滚，它将会回滚到自己的保存点，而不影响外部事务。
+
+#### [#](#区别) 区别
+
+- Propagation.REQUIRED 是默认的传播行为，方法调用将加入当前事务，或者创建一个新事务。
+- Propagation.NESTED 是嵌套的传播行为，方法调用将在独立的子事务中执行，具有自己的保存点，可以独立于外部事务进行回滚，而不影响外部事务。
+
+如果你希望内部方法能够独立于外部事务进行回滚，可以选择 Propagation.NESTED，如果你希望内部方法与外部事务一同回滚或提交，可以选择 Propagation.REQUIRED。
+
+### 29.什么是跨域问题，如何解决？
+
+跨域问题指的是不同站点之间，使用 ajax 无法相互调用的问题。**跨域问题本质是浏览器的一种保护机制，它的初衷是为了保证用户的安全，防止恶意网站窃取数据。** 但这个保护机制也带来了新的问题，它的问题是给不同站点之间的正常调用，也带来的阻碍，那怎么解决这个问题呢？接下来我们一起来看。
+
+#### [#](#_1-跨域三种情况) 1.跨域三种情况
+
+在请求时，如果出现了以下情况中的任意一种，那么它就是跨域请求：
+
+1. **协议不同，如 http 和 https；**
+2. **域名不同；**
+3. **端口不同。**
+
+也就是说，**即使域名相同，如果一个使用的是 http，另一个使用的是 https，那么它们也属于跨域访问**。常见的跨域问题如下图所示：
+
+![img](https://javacn.site/image/1661344468614-be3e48d0-d953-47fa-95d1-fa50d6facebe.png)
+
+#### [#](#_2-跨域问题演示) 2.跨域问题演示
+
+接下来，我们使用两个 Spring Boot 项目来演示跨域的问题，其中一个是端口号为 8080 的前端项目，另一个端口号为 9090 的后端接口项目。
+
+#### [#](#_2-1-前端网站) 2.1 前端网站
+
+前端项目只需要在 resources 下放两个文件，一个用于发送 ajax 请求的 jquery.js，另一个是 html 前端页面，工程目录如下图所示：
+
+![img](https://javacn.site/image/1661565125256-f44e9d8e-7a87-4efe-8e52-02ae430844a3.png)
+
+其中前端页面 index.html 的代码如下：
+
+
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨域测试页面</title>
+    <script src="js/jquery.min.js"></script>
+</head>
+<body>
+<h1>跨域测试</h1>
+<div>
+    <input type="button" onclick="mySubmit()" value=" 发送跨域请求 ">
+</div>
+<script>
+    function mySubmit() {
+        // 发送跨域请求
+        jQuery.ajax({
+            url: "http://localhost:9090/test",
+            type: "POST",
+            data: {"name": "Java"},
+            success: function (result) {
+                alert("返回数据：" + result.data);
+            }
+        });
+    }
+</script>
+</body>
+</html>
+```
+
+#### [#](#_2-2-后端接口) 2.2 后端接口
+
+后端接口项目首先先在 application.properties 配置文件中，设置项目的端口号为 9090，如下所示：
+
+
+
+```properties
+server.port=9090
+```
+
+然后创建一个后端控制器，返回一个 JSON 格式的数据，实现代码如下：
+
+
+
+```java
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import java.util.HashMap;
+
+@RestController
+public class TestController {
+    @RequestMapping("/test")
+    public HashMap<String, Object> test() {
+        return new HashMap<String, Object>() {{
+            put("state", 200);
+            put("data", "success");
+            put("msg", "");
+        }};
+    }
+}
+```
+
+以上两个项目创建并启动成功之后，使用前端项目访问后端接口，因为端口不一样，所以也属于跨域访问，运行结果如下图所示：
+
+![img](https://javacn.site/image/1661565520406-2f3caaff-d751-4c5c-83ce-6233cf69a6a2.png)
+
+#### [#](#_3-解决跨域问题) 3.解决跨域问题
+
+在 Spring Boot 中跨域问题有很多种解决方案，比如以下 5 个：
+
+1. **使用 @CrossOrigin 注解实现跨域；**
+2. **通过配置文件实现跨域；**
+3. **通过 CorsFilter 对象实现跨域；**
+4. **通过 Response 对象实现跨域；**
+5. **通过实现 ResponseBodyAdvice 实现跨域。**
+
+当然如果你愿意的话，还可以使用过滤器来实现跨域，但它的实现和第 5 种实现类似，所以本文就不赘述了。
+
+#### [#](#_3-1-通过注解跨域) 3.1 通过注解跨域
+
+**使用 @CrossOrigin 注解可以轻松的实现跨域，此注解既可以修饰类，也可以修饰方法。当修饰类时，表示此类中的所有接口都可以跨域；当修饰方法时，表示此方法可以跨域**，它的实现如下：
+
+
+
+```java
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import java.util.HashMap;
+
+@RestController
+@CrossOrigin(origins = "*")
+public class TestController {
+    @RequestMapping("/test")
+    public HashMap<String, Object> test() {
+        return new HashMap<String, Object>() {{
+            put("state", 200);
+            put("data", "success");
+            put("msg", "");
+        }};
+    }
+}
+```
+
+以上代码的执行结果如下图所示：
+
+![img](https://javacn.site/image/1661565650138-cfcac43c-c1d5-470e-b440-4bb537639cee.png)
+
+从上图中可以看出，前端项目访问另一个后端项目成功了，也就说明它解决了跨域问题。 **优缺点分析** 此方式虽然虽然实现（跨域）比较简单，但细心的朋友也能发现，**使用此方式只能实现局部跨域，当一个项目中存在多个类的话，使用此方式就会比较麻烦（需要给所有类上都添加此注解）。**
+
+#### [#](#_3-2-通过配置文件跨域) 3.2 通过配置文件跨域
+
+接下来我们**通过设置配置文件的方式就可以实现全局跨域**了，它的实现步骤如下：
+
+- 创建一个新配置文件；
+- 添加 @Configuration 注解，实现 WebMvcConfigurer 接口；
+- 重写 addCorsMappings 方法，设置允许跨域的代码。
+
+具体实现代码如下：
+
+
+
+```java
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration // 一定不要忽略此注解
+public class CorsConfig implements WebMvcConfigurer {
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/**") // 所有接口
+                .allowCredentials(true) // 是否发送 Cookie
+                .allowedOriginPatterns("*") // 支持域
+                .allowedMethods(new String[]{"GET", "POST", "PUT", "DELETE"}) // 支持方法
+                .allowedHeaders("*")
+                .exposedHeaders("*");
+    }
+}
+```
+
+#### [#](#_3-3-通过-corsfilter-跨域) 3.3 **通过 CorsFilter 跨域**
+
+此实现方式和上一种实现方式类似，**它也可以实现全局跨域**，它的具体实现代码如下：
+
+
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
+
+@Configuration // 一定不能忽略此注解
+public class MyCorsFilter {
+    @Bean
+    public CorsFilter corsFilter() {
+        // 1.创建 CORS 配置对象
+        CorsConfiguration config = new CorsConfiguration();
+        // 支持域
+        config.addAllowedOriginPattern("*");
+        // 是否发送 Cookie
+        config.setAllowCredentials(true);
+        // 支持请求方式
+        config.addAllowedMethod("*");
+        // 允许的原始请求头部信息
+        config.addAllowedHeader("*");
+        // 暴露的头部信息
+        config.addExposedHeader("*");
+        // 2.添加地址映射
+        UrlBasedCorsConfigurationSource corsConfigurationSource = new UrlBasedCorsConfigurationSource();
+        corsConfigurationSource.registerCorsConfiguration("/**", config);
+        // 3.返回 CorsFilter 对象
+        return new CorsFilter(corsConfigurationSource);
+    }
+}
+```
+
+#### [#](#_3-4-通过-response-跨域) 3.4 通过 Response 跨域
+
+**此方式是解决跨域问题最原始的方式，但它可以支持任意的 Spring Boot 版本（早期的 Spring Boot 版本也是支持的）。但此方式也是局部跨域，它应用的范围最小，设置的是方法级别的跨域**，它的具体实现代码如下：
+
+
+
+```java
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.servlet.http.HttpServletResponse;
+import java.util.HashMap;
+
+@RestController
+public class TestController {
+    @RequestMapping("/test")
+    public HashMap<String, Object> test(HttpServletResponse response) {
+        // 设置跨域
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        return new HashMap<String, Object>() {{
+            put("state", 200);
+            put("data", "success");
+            put("msg", "");
+        }};
+    }
+}
+```
+
+#### [#](#_3-5-通过-responsebodyadvice-跨域) 3.5 通过 ResponseBodyAdvice 跨域
+
+通过重写 ResponseBodyAdvice 接口中的 beforeBodyWrite（返回之前重写）方法，我们可以对所有的接口进行跨域设置，它的具体实现代码如下：
+
+
+
+```java
+import org.springframework.core.MethodParameter;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
+
+@ControllerAdvice
+public class ResponseAdvice implements ResponseBodyAdvice {
+    /**
+     * 内容是否需要重写（通过此方法可以选择性部分控制器和方法进行重写）
+     * 返回 true 表示重写
+     */
+    @Override
+    public boolean supports(MethodParameter returnType, Class converterType) {
+        return true;
+    }
+    /**
+     * 方法返回之前调用此方法
+     */
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
+                                  Class selectedConverterType, ServerHttpRequest request,
+                                  ServerHttpResponse response) {
+        // 设置跨域
+        response.getHeaders().set("Access-Control-Allow-Origin", "*");
+        return body;
+    }
+}
+```
+
+**此实现方式也是全局跨域，它对整个项目中的所有接口有效。**
+
+#### [#](#_4-原理分析) 4.原理分析
+
+为什么通过以上方法设置之后，就可以实现不同项目之间的正常交互呢？ 这个问题的答案也很简单，我们之前在说跨域时讲到：“**跨域问题本质是浏览器的行为，它的初衷是为了保证用户的访问安全，防止恶意网站窃取数据**”，那想要解决跨域问题就变得很简单了，**只需要告诉浏览器这是一个安全的请求，“我是自己人”就行了**，那怎么告诉浏览器这是一个正常的请求呢？
+
+只需要**在返回头中设置“Access-Control-Allow-Origin”参数即可解决跨域问题，此参数就是用来表示允许跨域访问的原始域名的，当设置为“\*”时，表示允许所有站点跨域访问**，如下图所示：
+
+![img](https://javacn.site/image/1661566140387-4d1f3053-9510-40fc-9639-04771b0889d2.png)
+
+所以**以上 5 种解决跨域问题的本质都是给响应头中加了一个 Access-Control-Allow-Origin 的响应头而已。**
+
+#### [#](#演示项目源码) 演示项目源码
+
+[https://gitee.com/mydb/springboot-examples/tree/master/spring-boot-crossopen in new window](https://gitee.com/mydb/springboot-examples/tree/master/spring-boot-cross)
+
+#### [#](#小结) 小结
+
+跨域问题的本质是浏览器为了保证用户的一种安全拦截机制，想要解决跨域问题，只需要告诉浏览器“我是自己人，不要拦我”就行。它的常见实现方式有 5 种：通过注解实现局部跨域、通过配置文件实现全局跨域、通过 CorsFilter 对象实现全局跨域、通过 Response 对象实现局部跨域，通过 ResponseBodyAdvice 实现全局跨域。
+
+### 30.读过框架源码吗？举例说明一下
+
+前两天有朋友面试“淘天集团”，也就是“淘宝”+“天猫”的组合，最后被面试官问到了这道题：“**你看过哪些开源框架的源码？举例说明一下**”。
+
+诚然，这是一道比较考验应聘者基本功的问题，也是很好区分“好学生”和“普通学生”的一道经典的开放性问题。
+
+那这个问题应该怎么回答呢？
+
+## [#](#解答思路) 解答思路
+
+我这给大家提供两个思路吧：
+
+1. 可以回答比较常见的，你比较熟悉的源码，例如 Spring Boot 收到请求之后，执行流程的源码。
+2. 还可以回答 Spring Cloud 微服务中，某个组件执行的流程源码，这样能很好的体现你对微服务比较熟悉，因为微服务在公司中应用比较广泛，所以回答的好，是一个极大的加分项。
+
+#### [#](#_1-spring-boot-源码分析) 1.Spring Boot 源码分析
+
+Spring Boot 在收到请求之后，会先执行前端控制器 DispatcherServlet，并调用其父类 FrameworkServlet 中的 service 方法，其核心源码如下：
+
+
+
+```java
+/**
+ * Override the parent class implementation in order to intercept PATCH requests.
+ */
+@Override
+protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+
+    HttpMethod httpMethod = HttpMethod.resolve(request.getMethod());
+    if (httpMethod == HttpMethod.PATCH || httpMethod == null) {
+        processRequest(request, response);
+    } else {
+        super.service(request, response);
+    }
+}
+```
+
+继续往下看，processRequest 实现源码如下：
+
+
+
+```java
+protected final void processRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+ // 省略一堆初始化配置
+   
+   try {
+       // 真正执行逻辑的方法
+       doService(request, response);
+   }
+   catch (ServletException | IOException ex) {
+       ...
+   }
+}
+```
+
+doService 实现源码如下：
+
+
+
+```java
+protected abstract void doService(HttpServletRequest request, HttpServletResponse response) throws Exception;
+```
+
+doService 是抽象方法，由其之类 DispatcherServlet 来重写实现，其核心源码如下：
+
+
+
+```java
+@Override
+protected void doService(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    // 省略初始化过程...
+    try {
+        doDispatch(request, response);
+    }
+    finally {
+		// 省略其他...
+    }
+}
+```
+
+此时就进入到了 DispatcherServlet 中的 doDispatch 方法了：
+
+
+
+```java
+protected void doDispatch(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    // 获取原生请求
+    HttpServletRequest processedRequest = request;
+    // 获取Handler执行链
+    HandlerExecutionChain mappedHandler = null;
+    // 是否为文件上传请求, 默认为false
+    boolean multipartRequestParsed = false;
+    WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+    try {
+        ModelAndView mv = null;
+        Exception dispatchException = null;
+        try {
+            // 检查是否为文件上传请求
+            processedRequest = checkMultipart(request);
+            multipartRequestParsed = (processedRequest != request);
+            // Determine handler for the current request.
+            // 获取能处理此请求的Handler
+            mappedHandler = getHandler(processedRequest);
+            if (mappedHandler == null) {
+                noHandlerFound(processedRequest, response);
+                return;
+            }
+            // Determine handler adapter for the current request.
+            // 获取适配器
+            HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler());
+            // Process last-modified header, if supported by the handler.
+            String method = request.getMethod();
+            boolean isGet = "GET".equals(method);
+            if (isGet || "HEAD".equals(method)) {
+                long lastModified = ha.getLastModified(request, mappedHandler.getHandler());
+                if (new ServletWebRequest(request, response).checkNotModified(lastModified) && isGet) {
+                    return;
+                }
+            }
+            // 执行拦截器（链）的前置处理
+            if (!mappedHandler.applyPreHandle(processedRequest, response)) {
+                return;
+            }
+            // 真正的执行对应方法
+            mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+            if (asyncManager.isConcurrentHandlingStarted()) {
+                return;
+            }
+            applyDefaultViewName(processedRequest, mv);
+            mappedHandler.applyPostHandle(processedRequest, response, mv);
+        }
+        // 忽略其他...
+}
+```
+
+通过上述的源码我们可以看到，请求的核心代码都在 doDispatch 中，他里面包含的主要执行流程有以下这些：
+
+1. **调用 HandlerExecutionChain 获取处理器**：DispatcherServlet 首先调用 getHandler 方法，通过 HandlerMapping 获取请求对应的 HandlerExecutionChain 对象，包含了处理器方法和拦截器列表。
+2. **调用 HandlerAdapter 执行处理器方法**：DispatcherServlet 使用 HandlerAdapter 来执行处理器方法。根据 HandlerExecutionChain 中的处理器方法类型不同，选择对应的 HandlerAdapter 进行处理。常用的适配器有 RequestMappingHandlerAdapter 和 HttpRequestHandlerAdapter。
+3. **解析请求参数**：DispatcherServlet 调用 HandlerAdapter 的 handle 方法，解析请求参数，并将解析后的参数传递给处理器方法执行。
+4. **调用处理器方法**：DispatcherServlet 通过反射机制调用处理器方法，执行业务逻辑。
+5. **处理拦截器**：在调用处理器方法前后，DispatcherServlet 会调用拦截器的 preHandle 和 postHandle方法进行相应的处理。
+6. **渲染视图**：处理器方法执行完成后，DispatcherServlet 会通过 ViewResolver 解析视图名称，找到对应的 View 对象，并将模型数据传递给 View 进行渲染。
+7. **生成响应**：View 会将渲染后的视图内容生成响应数据。
+
+#### [#](#_2-spring-cloud-源码) 2.Spring Cloud 源码
+
+Spring Cloud 组件有很多，你可以挑一个源码实现比较简单的组件来讲，这里推荐 Spring Cloud LoadBalancer，因为其核心源码的实现比较简单。
+
+Spring Cloud LoadBalancer 中内置了两种负载均衡策略：
+
+1. 轮询负载均衡策略
+2. 随机负载均衡策略
+
+轮询负载均衡策略的核心实现源码如下：
+
+
+
+```java
+// ++i 去负数，得到一个正数值
+int pos = this.position.incrementAndGet() & Integer.MAX_VALUE;
+// 正数值和服务实例个数取余 -> 实现轮询
+ServiceInstance instance = (ServiceInstance)instances.get(pos % instances.size());
+// 将实例返回给调用者
+return new DefaultResponse(instance);
+```
+
+随机负载均衡策略的核心实现源码如下：
+
+
+
+```java
+// 通过 ThreadLocalRandom 获取一个随机数，最大值为服务实例的个数
+int index = ThreadLocalRandom.current().nextInt(instances.size());
+// 得到实例
+ServiceInstance instance = (ServiceInstance)instances.get(index);
+// 返回
+return new DefaultResponse(instance);
+```
+
+#### [#](#小结) 小结
+
+开源框架的源码在面试中经常会被问到，但只因如此，就去完整的看某个框架的源码，其实还是挺难的。第一，框架中的源码很多，很难一次性看懂。第二，即使能看懂，看完之后也会很快忘记（因为内容太多了）。此时，不如挑一些框架中的经典实现源码来看，其性价比更高，既能学到框架中的精髓，又能搞定面试，是一个不错的选择。
+
+------
+
