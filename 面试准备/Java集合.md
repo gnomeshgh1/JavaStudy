@@ -12,3 +12,9 @@
 
 6.hashMap的底层实现
 
+7.ArrayList和LinkedList的插入、删除时间复杂度
+
+8.LinkedList为什么不能实现RandomAccess接口
+
+9.Queue和Deque的区别
+
