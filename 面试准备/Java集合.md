@@ -18,3 +18,10 @@
 
 9.Queue和Deque的区别
 
+10.hashMap和HashSet的区别
+
+11.HashMap和HashTable的区别
+
+12.HashSet如何检查重复
+
+13.HashMap为什么线程不安全
