@@ -25,3 +25,10 @@
 12.HashSet如何检查重复
 
 13.HashMap为什么线程不安全
+
+14. 集合判空使用isEmpty
+15. 集合转map，使用java.util.stream.Collections的tomap()方法,注意value为空会抛NPE
+16. 集合遍历，不要在foreach循环里add/remove操作
+17. 集合去重，可以利用set元素唯一的特性
+18. 集合转数组，list.toArray(T[] array)
+19. 数组转集合，Arrays.asList()
